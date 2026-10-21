@@ -4,10 +4,11 @@ import { PrismaClient } from "@prisma/client";
 import { DEMO_EMPLOYEE, demoVendorPin } from "../src/lib/demo";
 import { demoMode } from "../src/lib/mode";
 import { normalizeIndianMobile } from "../src/lib/phone";
-import { hashPin } from "../src/lib/pin";
+import { hashPin, verifyPin } from "../src/lib/pin";
 
-// Prisma only loads .env; read the same files the app does (.env.local etc.).
-loadEnvConfig(process.cwd());
+// Prisma only loads .env; read the same files the app does. `npm run dev`
+// passes --dev so .env.development* count, as they do for `next dev`.
+loadEnvConfig(process.cwd(), process.argv.includes("--dev"));
 
 // Demo stalls share one known PIN. Outside demo mode each new stall gets its own
 // random PIN, printed once below, unless DEMO_VENDOR_PIN is set explicitly.
@@ -528,6 +529,17 @@ async function main() {
     `Seed complete: ${stalls.length} stalls known, ${createdStalls} created, ${createdItems} menu items added` +
       `${addDemo ? ", demo employee added" : ""}.`,
   );
+  if (!demoMode()) {
+    const withDemoPin = (await prisma.stall.findMany({ select: { name: true, vendorPinHash: true } })).filter((stall) =>
+      verifyPin(demoVendorPin(), stall.vendorPinHash),
+    );
+    if (withDemoPin.length) {
+      console.warn(
+        `Warning: ${withDemoPin.length} stall(s) still use the demo counter PIN ${demoVendorPin()} ` +
+          `(${withDemoPin.map((stall) => stall.name).join(", ")}). Change them under Menu before real use.`,
+      );
+    }
+  }
   if (demoExists && !demoMode()) {
     console.warn(`Warning: demo employee ${DEMO_EMPLOYEE.employeeId} exists but DEMO_MODE is off. Delete it before real use.`);
   }

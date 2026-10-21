@@ -6,7 +6,7 @@ import { checkOtp, issueOtp, type OtpPurpose } from "@/lib/otp";
 import { nationalNumber, normalizeIndianMobile } from "@/lib/phone";
 import { hashPin, isWeakPin, verifyPin } from "@/lib/pin";
 import { prisma } from "@/lib/prisma";
-import { clientIp, consume } from "@/lib/rate-limit";
+import { clientIp, consume, peek } from "@/lib/rate-limit";
 import {
   canChangePin,
   clearOtpTicket,
@@ -32,6 +32,9 @@ const MAX_PIN_FAILURES = 5;
 // Unknown numbers and real accounts use the same window, so the lockout
 // cannot tell them apart.
 const PIN_FAILURE_WINDOW_MS = 30 * MINUTE;
+// After this many lockouts without a successful sign-in, waiting no longer
+// helps: a code sign-in is needed, so guessing cannot simply carry on.
+const MAX_TIMED_LOCKOUTS = 3;
 
 let dummyPinHash: string | undefined;
 
@@ -59,7 +62,7 @@ function pinProblem(pin: string, confirmPin: string, phone: string) {
 async function completeCodeSignIn(employeeId: string) {
   const employee = await prisma.employee.update({
     where: { id: employeeId },
-    data: { pinFailedCount: 0, pinFailedAt: null, lastLoginAt: new Date() },
+    data: { pinFailedCount: 0, pinFailedAt: null, pinLockouts: 0, lastLoginAt: new Date() },
   });
   await startEmployeeSession(employee, "otp");
 }
@@ -179,13 +182,30 @@ export async function loginWithPin(formData: FormData) {
     // Same hashing cost and the same lockout as a real account, so this form
     // cannot be used to find out which numbers are registered.
     verifyPin(pin, (dummyPinHash ??= hashPin("0000")));
-    const key = `pin-unknown:${normalizeIndianMobile(identifier) ?? identifier.toUpperCase()}`;
-    backToPinSignIn(consume(key, MAX_PIN_FAILURES - 1, PIN_FAILURE_WINDOW_MS).ok ? "credentials" : "locked");
+    const who = normalizeIndianMobile(identifier) ?? identifier.toUpperCase();
+    const strikes = `pin-unknown-lockouts:${who}`;
+    if (peek(strikes) >= MAX_TIMED_LOCKOUTS) backToPinSignIn("locked");
+    const attempt = consume(`pin-unknown:${who}`, MAX_PIN_FAILURES - 1, PIN_FAILURE_WINDOW_MS);
+    if (attempt.ok) backToPinSignIn("credentials");
+    if (attempt.count === MAX_PIN_FAILURES) consume(strikes, Number.POSITIVE_INFINITY, 30 * 24 * 60 * MINUTE);
+    backToPinSignIn("locked");
   }
 
-  // A failure window that has run out starts over, lock included.
+  // A failure window that has run out starts over. A lock in it counts as a
+  // strike; the third lock stays until a code sign-in. Rows locked before
+  // windows existed have no start time and count as run out.
+  const cutoff = new Date(Date.now() - PIN_FAILURE_WINDOW_MS);
   await prisma.employee.updateMany({
-    where: { id: employee.id, pinFailedAt: { lt: new Date(Date.now() - PIN_FAILURE_WINDOW_MS) } },
+    where: {
+      id: employee.id,
+      pinFailedCount: { gte: MAX_PIN_FAILURES },
+      pinLockouts: { lt: MAX_TIMED_LOCKOUTS - 1 },
+      OR: [{ pinFailedAt: { lt: cutoff } }, { pinFailedAt: null }],
+    },
+    data: { pinFailedCount: 0, pinFailedAt: null, pinLockouts: { increment: 1 } },
+  });
+  await prisma.employee.updateMany({
+    where: { id: employee.id, pinFailedCount: { lt: MAX_PIN_FAILURES }, pinFailedAt: { lt: cutoff } },
     data: { pinFailedCount: 0, pinFailedAt: null },
   });
   // Count the attempt before checking it, so parallel guesses cannot get past the limit.
@@ -209,7 +229,7 @@ export async function loginWithPin(formData: FormData) {
 
   const signedIn = await prisma.employee.update({
     where: { id: employee.id },
-    data: { pinFailedCount: 0, pinFailedAt: null, lastLoginAt: new Date() },
+    data: { pinFailedCount: 0, pinFailedAt: null, pinLockouts: 0, lastLoginAt: new Date() },
   });
   await startEmployeeSession(signedIn, "pin");
   redirect("/stalls");
@@ -225,7 +245,7 @@ export async function setNewPin(formData: FormData) {
   // A new session version signs out every other device that had this account open.
   const employee = await prisma.employee.update({
     where: { id: session.uid },
-    data: { pinHash: hashPin(pin), pinFailedCount: 0, pinFailedAt: null, sessionVersion: { increment: 1 } },
+    data: { pinHash: hashPin(pin), pinFailedCount: 0, pinFailedAt: null, pinLockouts: 0, sessionVersion: { increment: 1 } },
   });
   await startEmployeeSession(employee, "otp", session.authAt);
   redirect("/enter/new-pin?saved=1");

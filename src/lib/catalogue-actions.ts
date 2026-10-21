@@ -7,7 +7,7 @@ import { hashPin, verifyPin } from "@/lib/pin";
 import { prisma } from "@/lib/prisma";
 import { consume } from "@/lib/rate-limit";
 import { getVendorSession, setVendorSession } from "@/lib/session";
-import { ITEM_ID_PATTERN, PIN_PATTERN, cleanText, toInt } from "@/lib/validation";
+import { ITEM_ID_PATTERN, PIN_PATTERN, SLOT_PATTERN, cleanText, toInt } from "@/lib/validation";
 
 const MENU_PATH = "/vendor/menu";
 const MAX_PRICE_INR = 5000;
@@ -146,4 +146,25 @@ export async function changeVendorPin(formData: FormData) {
   });
   await setVendorSession({ stallId: vendor.stallId, sessionVersion: updated.sessionVersion });
   done("pin");
+}
+
+export async function updateStallHours(formData: FormData) {
+  const vendor = await requireVendor();
+  const allDay = formData.get("allDay") === "1";
+  const openTime = allDay ? "00:00" : cleanText(formData.get("openTime"), 5);
+  const closeTime = allDay ? "23:59" : cleanText(formData.get("closeTime"), 5);
+  // Closing earlier than opening means the counter runs past midnight.
+  if (!SLOT_PATTERN.test(openTime) || !SLOT_PATTERN.test(closeTime) || openTime === closeTime) fail("hours");
+  await prisma.stall.update({ where: { id: vendor.stallId }, data: { openTime, closeTime } });
+  revalidatePath("/stalls");
+  done("hours");
+}
+
+export async function setStallPaused(formData: FormData) {
+  const vendor = await requireVendor();
+  const paused = formData.get("paused") === "1";
+  await prisma.stall.update({ where: { id: vendor.stallId }, data: { paused } });
+  revalidatePath("/stalls");
+  revalidatePath("/vendor");
+  done(paused ? "paused" : "resumed");
 }

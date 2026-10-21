@@ -33,7 +33,7 @@ export default async function StallPage({
     },
   });
   if (!stall) notFound();
-  const open = isStallOpen(stall.openTime, stall.closeTime);
+  const open = !stall.paused && isStallOpen(stall.openTime, stall.closeTime);
 
   return (
     <div className="flex min-h-full flex-col">
@@ -49,7 +49,7 @@ export default async function StallPage({
               {stall.cuisine} · {stall.location}
             </p>
           </div>
-          <Badge variant={open ? "default" : "secondary"}>{open ? "Open" : "Closed"}</Badge>
+          <Badge variant={open ? "default" : "secondary"}>{stall.paused ? "Paused" : open ? "Open" : "Closed"}</Badge>
         </div>
         <p className="mt-3 text-sm text-muted-foreground">{stall.description}</p>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -59,7 +59,9 @@ export default async function StallPage({
         </div>
         {!open ? (
           <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-950">
-            {opensLaterToday(stall.openTime)
+            {stall.paused
+              ? "This stall has paused new orders for a while. Check back soon, or pick another stall."
+              : opensLaterToday(stall.openTime)
               ? `Opens at ${stall.openTime} IST. You can bag items now and pre-book a pickup slot after opening.`
               : `Closed for today. Reopens at ${stall.openTime} IST. Browse, or pick a stall that is open now.`}
           </p>

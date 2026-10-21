@@ -89,6 +89,12 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
     [],
   );
 
+  // Orders pulled in by a lookup go away with the search; the poll keeps the rest.
+  function clearSearch() {
+    setQuery("");
+    setOrders((current) => current.filter((o) => !o.found));
+  }
+
   function change(order: VendorOrder, patch: Partial<VendorOrder>, run: () => Promise<ActionResult>, done: string) {
     startTransition(async () => {
       const result = await run();
@@ -124,7 +130,7 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
           onChange={(event) => setQuery(event.target.value.slice(0, 12))}
         />
         {query ? (
-          <Button type="button" variant="ghost" onClick={() => setQuery("")}>
+          <Button type="button" variant="ghost" onClick={clearSearch}>
             Clear
           </Button>
         ) : null}
@@ -146,7 +152,7 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
             type="button"
             onClick={() => {
               setTab(id);
-              setQuery("");
+              clearSearch();
             }}
             className={`h-9 rounded-lg px-3 text-sm font-medium capitalize ${
               tab === id ? "bg-primary text-primary-foreground" : "bg-card ring-1 ring-border"

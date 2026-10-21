@@ -20,6 +20,7 @@ export type CheckoutStall = {
   name: string;
   openTime: string;
   closeTime: string;
+  paused: boolean;
   slots: PickupSlot[];
 };
 
@@ -62,7 +63,9 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
       <div className="rounded-xl border bg-card p-6">
         <p className="font-medium">{cart.stallName} is not taking orders right now.</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          {stall
+          {stall?.paused
+            ? "The stall has paused new orders for a while. Your bag is saved; try again soon."
+            : stall
             ? `Counter hours are ${hoursLabel(stall.openTime, stall.closeTime)} (IST). Pick a stall that is open now, or come back at ${stall.openTime}.`
             : "That stall is not on the court today."}
         </p>

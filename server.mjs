@@ -7,9 +7,13 @@
 // (0 when browsers connect directly). The address that many hops back from
 // the socket is the client; anything further left was typed by the client.
 import { createServer } from "node:http";
+import nextEnv from "@next/env";
 import { clientAddress } from "./scripts/client-address.mjs";
 
 process.env.NODE_ENV ??= "production";
+// Load .env* now, as `next start` would, so TRUST_PROXY_HOPS, PORT and HOST
+// set there are seen before they are read below.
+nextEnv.loadEnvConfig(process.cwd(), false);
 const { default: next } = await import("next");
 
 const port = Number.parseInt(process.env.PORT ?? "43123", 10);

@@ -20,7 +20,8 @@ export default async function StallsPage() {
       vegOnly: stall.vegOnly,
       busyLevel: stall.busyLevel,
       accent: stall.accent,
-      open: isStallOpen(stall.openTime, stall.closeTime),
+      open: !stall.paused && isStallOpen(stall.openTime, stall.closeTime),
+      paused: stall.paused,
       openTime: stall.openTime,
       closeTime: stall.closeTime,
     }))

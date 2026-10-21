@@ -37,8 +37,13 @@ export function QrScanner({ onResult, onClose }: { onResult: (value: string) => 
 
     (async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
-        if (stopped || !video.current) return;
+        const opened = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+        // Closed while the camera was still opening: turn it straight off again.
+        if (stopped || !video.current) {
+          opened.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        stream = opened;
         video.current.srcObject = stream;
         await video.current.play();
         while (!stopped) {
@@ -50,7 +55,7 @@ export function QrScanner({ onResult, onClose }: { onResult: (value: string) => 
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
       } catch {
-        setError("Could not open the camera. Allow camera access, or type the token instead.");
+        if (!stopped) setError("Could not open the camera. Allow camera access, or type the token instead.");
       }
     })();
 

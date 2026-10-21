@@ -528,6 +528,49 @@ await step("the counter finds a token, hands it over, and other stalls cannot", 
   return `${token} found by token and collected; another stall was refused`;
 });
 
+await step("order again refills the bag from a past order", async () => {
+  await emp.goto(`${BASE}/orders`);
+  await emp.locator("main a", { hasText: token }).click();
+  await emp.waitForURL(/\/orders\/[^/]+$/);
+  await emp.getByRole("button", { name: "Order again" }).click();
+  await emp.waitForURL(`${BASE}/checkout`);
+  await emp.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
+  return "bag refilled, checkout ready";
+});
+
+await step("a stall can pause new orders, and set its hours", async () => {
+  const vendor = await vendorSignIn("vendor-pause");
+  await vendor.goto(`${BASE}/vendor/menu`);
+  await vendor.getByRole("button", { name: "Pause new orders" }).click();
+  await vendor.waitForURL(/ok=paused/);
+  try {
+    await emp.goto(`${BASE}/stalls/momos`);
+    await emp.getByText("This stall has paused new orders").waitFor({ timeout: 5000 });
+    await emp.goto(`${BASE}/checkout`);
+    await emp.getByText("paused new orders").waitFor({ timeout: 5000 });
+    check((await emp.locator("main button:has-text('Pay ₹')").count()) === 0, "checkout still offers Pay while paused");
+  } finally {
+    await vendor.goto(`${BASE}/vendor/menu`);
+    await vendor.getByRole("button", { name: "Resume orders" }).click();
+    await vendor.waitForURL(/ok=resumed/);
+  }
+  await emp.goto(`${BASE}/checkout`);
+  await emp.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
+
+  // Opening and closing at the same minute is refused; saving the current hours works.
+  const open = await vendor.inputValue("#openTime");
+  await vendor.uncheck("input[name='allDay']");
+  await vendor.fill("#openTime", "10:00");
+  await vendor.fill("#closeTime", "10:00");
+  await vendor.getByRole("button", { name: "Save hours" }).click();
+  await vendor.waitForURL(/error=hours/);
+  await vendor.goto(`${BASE}/vendor/menu`);
+  await vendor.getByRole("button", { name: "Save hours" }).click();
+  await vendor.waitForURL(/ok=hours/);
+  check((await vendor.inputValue("#openTime")) === open, "saving changed the hours");
+  await vendor.context().close();
+});
+
 await step("a tampered session cookie is refused", async () => {
   const real = (await emp.context().cookies()).find((c) => c.name === "iwf_employee");
   const [body, signature] = real.value.split(".");

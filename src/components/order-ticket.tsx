@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCart } from "@/components/cart-provider";
 import { toast } from "sonner";
 import { VegDot } from "@/components/veg-dot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cancelOwnOrder } from "@/lib/actions";
+import { cancelOwnOrder, reorderLines } from "@/lib/actions";
 import { formatInr } from "@/lib/money";
 import type { OrderStatusUpdate, OrderView } from "@/lib/order-view";
 import { employeeCanCancel, isOpenStatus } from "@/lib/orders";
@@ -16,8 +18,13 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
   const [order, setOrder] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, startCancel] = useTransition();
+  const [reordering, startReorder] = useTransition();
+  const router = useRouter();
+  const { replace } = useCart();
   const [notify, setNotify] = useState<"unsupported" | "ask" | "on" | "blocked">("unsupported");
   const lastStatus = useRef(initial.status);
+  // Bumped on the employee's own change, so a poll already in flight cannot undo it.
+  const edits = useRef(0);
   const open = isOpenStatus(order.status);
 
   useEffect(() => {
@@ -31,7 +38,9 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
   useEffect(() => {
     // Collected and cancelled orders do not change any more.
     if (!open) return;
+    let live = true;
     const timer = setInterval(async () => {
+      const startedAt = edits.current;
       try {
         const res = await fetch(`/api/orders/${initial.id}`, { cache: "no-store" });
         if (!res.ok) {
@@ -39,6 +48,7 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
           return;
         }
         const data = (await res.json()) as OrderStatusUpdate;
+        if (!live || edits.current !== startedAt) return;
         if (data.status === "READY" && lastStatus.current !== "READY") {
           announceReady(initial.token, initial.stallName);
         }
@@ -49,7 +59,10 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
         setError("You are offline. The token on screen is still valid.");
       }
     }, 3000);
-    return () => clearInterval(timer);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
   }, [initial.id, initial.stallName, initial.token, open]);
 
   useEffect(() => {
@@ -64,6 +77,7 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
     if (!window.confirm("Cancel this order? The mock payment is refunded.")) return;
     startCancel(async () => {
       const result = await cancelOwnOrder(order.id);
+      edits.current += 1;
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -76,6 +90,19 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
         cancelNote: "You cancelled this order.",
       }));
       toast.success("Order cancelled. The mock payment was refunded.");
+    });
+  }
+
+  function orderAgain() {
+    startReorder(async () => {
+      const result = await reorderLines(order.id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      replace(result.stall, result.lines);
+      if (result.skipped.length) toast.info(`Left out (not available now): ${result.skipped.join(", ")}`);
+      router.push("/checkout");
     });
   }
 
@@ -167,8 +194,8 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
         <Button variant="outline" className="flex-1" render={<Link href="/orders" />}>
           My orders
         </Button>
-        <Button className="flex-1" render={<Link href="/stalls" />}>
-          Order again
+        <Button className="flex-1" disabled={reordering} onClick={orderAgain}>
+          {reordering ? "Filling your bag…" : "Order again"}
         </Button>
       </div>
     </div>

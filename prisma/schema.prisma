@@ -16,6 +16,8 @@ model Stall {
   openTime    String
   closeTime   String
   vegOnly     Boolean    @default(false)
+  // Set by the stall to stop new orders for a while (rush, out of gas, ...).
+  paused      Boolean    @default(false)
   busyLevel   String
   vendorPinHash String
   // Bumped on PIN change; vendor sessions carrying an older value stop working.
@@ -92,6 +94,9 @@ model Employee {
   pinFailedCount Int       @default(0)
   // Start of the current failure window: the first wrong PIN after a reset.
   pinFailedAt    DateTime?
+  // Lockouts that ran out since the last successful sign-in. The third lockout
+  // does not run out: it needs a code sign-in.
+  pinLockouts    Int       @default(0)
   // Bumped on PIN reset; sessions carrying an older value stop working.
   sessionVersion Int       @default(0)
   lastLoginAt    DateTime?

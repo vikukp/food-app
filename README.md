@@ -76,7 +76,7 @@ With `DEMO_MODE=1`:
 - **Returning:** sign in with a one-time code, or with mobile number (or employee ID) and PIN.
 - **Forgot PIN / change PIN:** **Forgot PIN?** on the PIN tab, or **Change PIN** on the orders page. Both send a code to the registered number before a new PIN can be set. Saving a new PIN signs out every other device.
 - Codes last 5 minutes and allow 5 tries. A new code replaces the previous one. Each number can get one code every 30 seconds and 5 an hour.
-- Easy PINs (repeats like `1111`, runs like `1234`, common picks, the end of the mobile number) are refused. Five wrong PINs within 30 minutes lock PIN sign-in for the rest of that window, or until the employee signs in with a code.
+- Easy PINs (repeats like `1111`, runs like `1234`, common picks, the end of the mobile number) are refused. Five wrong PINs within 30 minutes lock PIN sign-in for the rest of that window, or until the employee signs in with a code. The third lockout without a successful sign-in in between does not run out: only a code sign-in lifts it.
 
 ### SMS provider
 
@@ -114,8 +114,8 @@ A checklist for running this for real, on one server:
 1. **Node 20.9+**, then `npm ci && npm run build`. Run `npm start` under a process manager (systemd, pm2) or a container. It listens on `0.0.0.0:43123` (`HOST`, `PORT`).
 2. **Secrets and mode.** Set `SESSION_SECRET` (32+ random characters) in the environment or `.env.production`. Do **not** set `DEMO_MODE`.
 3. **SMS.** `SMS_PROVIDER=twilio` with `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM` or `TWILIO_MESSAGING_SERVICE_SID`. Indian numbers need a DLT-registered sender and template (see SMS provider above). Without SMS, employees can only use PINs and new employees cannot register.
-4. **TLS and proxy.** Put the app behind a reverse proxy (nginx, Caddy, a cloud load balancer) that terminates HTTPS and sets `X-Forwarded-For` and `X-Forwarded-Proto`, then set `TRUST_PROXY_HOPS=1`. Session cookies become `Secure` and HSTS turns on automatically over HTTPS.
-5. **Stall PINs.** The first build on an empty database prints a random PIN per stall. Hand each to its stall; they can change it under **Menu**.
+4. **TLS and proxy.** Put the app behind a reverse proxy (nginx, Caddy, a cloud load balancer) that terminates HTTPS and sets `X-Forwarded-For` and `X-Forwarded-Proto`, then set `TRUST_PROXY_HOPS=1` (in the environment or `.env.production`). Session cookies become `Secure` and HSTS turns on automatically over HTTPS. Make sure browsers can only reach the app through the proxy: with the proxy on the same machine set `HOST=127.0.0.1`, otherwise firewall port 43123, or a client connecting directly could choose its own address.
+5. **Stall PINs.** The first build on an empty database prints a random PIN per stall. Hand each to its stall; they can change it under **Menu**. If the database was created in demo mode, the build warns about every stall still on the demo PIN.
 6. **Data.** SQLite lives in `prisma/dev.db`; back it up (e.g. `sqlite3 prisma/dev.db ".backup backup.db"`) and keep it on persistent disk. `npm run build` applies schema changes with `prisma db push` and never removes vendor edits.
 7. **Before employees use it:** connect registration to the HR directory or HPE SSO (names and IDs are not checked today), and replace the mock payment with the real Pluxee / UPI gateway.
 

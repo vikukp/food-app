@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SiteHeader } from "@/components/site-header";
 import { VendorQueue } from "@/components/vendor-queue";
@@ -24,6 +25,15 @@ export default async function VendorPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           {stall.location} · incoming orders refresh every few seconds.
         </p>
+        {stall.paused ? (
+          <p role="status" className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            New orders are paused.{" "}
+            <Link href="/vendor/menu" className="font-medium underline underline-offset-4">
+              Resume under Menu
+            </Link>
+            .
+          </p>
+        ) : null}
         <div className="mt-5">
           <VendorQueue initial={snapshot} />
         </div>

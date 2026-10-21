@@ -22,6 +22,7 @@ type CartContextValue = {
   ) => { replaced: boolean };
   setQty: (menuItemId: string, qty: number) => void;
   setPrices: (prices: Record<string, number>) => void;
+  replace: (stall: { id: string; name: string }, lines: CartLine[]) => void;
   clear: () => void;
 };
 
@@ -182,6 +183,14 @@ export function CartProvider({ owner, children }: { owner: string; children: Rea
 
   const clear = useCallback(() => writeCart(EMPTY_CART), []);
 
+  const replace = useCallback((stall: { id: string; name: string }, lines: CartLine[]) => {
+    writeCart({
+      stallId: stall.id,
+      stallName: stall.name,
+      items: lines.map((line) => ({ ...line, qty: Math.min(Math.max(1, line.qty), MAX_QTY_PER_LINE) })),
+    });
+  }, []);
+
   const value = useMemo(
     () => ({
       cart,
@@ -191,9 +200,10 @@ export function CartProvider({ owner, children }: { owner: string; children: Rea
       addItem,
       setQty,
       setPrices,
+      replace,
       clear,
     }),
-    [addItem, cart, clear, hydrated, setPrices, setQty],
+    [addItem, cart, clear, hydrated, replace, setPrices, setQty],
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

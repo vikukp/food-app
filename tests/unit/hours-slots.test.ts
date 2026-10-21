@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { campusDate, campusMinutesNow, hoursLabel, isStallOpen } from "@/lib/hours";
+import { campusDate, campusMinutesNow, hoursLabel, isStallOpen, serviceDay } from "@/lib/hours";
 import { getPickupSlots, isValidPickupSlot } from "@/lib/pickup-slots";
 
 // Campus time is IST (UTC+05:30).
@@ -20,6 +20,19 @@ describe("campus clock", () => {
     assert.equal(isStallOpen("11:30", "15:00", ist("12:00")), true);
     assert.equal(isStallOpen("11:30", "15:00", ist("15:00")), false);
     assert.equal(isStallOpen("00:00", "23:59", ist("03:00")), true);
+  });
+});
+
+describe("service day", () => {
+  it("keeps a late-night shift on the evening's date until closing", () => {
+    assert.equal(serviceDay("18:00", "02:00", ist("23:50", "2026-10-21")), "2026-10-21");
+    assert.equal(serviceDay("18:00", "02:00", ist("01:30", "2026-10-22")), "2026-10-21");
+    assert.equal(serviceDay("18:00", "02:00", ist("02:00", "2026-10-22")), "2026-10-22");
+  });
+
+  it("is the calendar date for day counters and 24-hour counters", () => {
+    assert.equal(serviceDay("11:30", "15:00", ist("01:30", "2026-10-22")), "2026-10-22");
+    assert.equal(serviceDay("00:00", "23:59", ist("00:05", "2026-10-22")), "2026-10-22");
   });
 });
 

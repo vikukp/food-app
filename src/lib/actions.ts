@@ -3,8 +3,16 @@
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { campusDate } from "@/lib/hours";
-import { STALL_CANCEL_REASONS, isOrderStatus, nextStatus, randomToken, stallCanCancel } from "@/lib/orders";
+import { serviceDay } from "@/lib/hours";
+import {
+  OPEN_STATUSES,
+  STALL_CANCEL_REASONS,
+  isOrderStatus,
+  nextStatus,
+  randomToken,
+  stallCanCancel,
+} from "@/lib/orders";
+import type { CartLine } from "@/lib/cart";
 import { effectivePrice } from "@/lib/pricing";
 import { verifyPin } from "@/lib/pin";
 import { isValidPickupSlot } from "@/lib/pickup-slots";
@@ -143,6 +151,7 @@ export async function placeOrder(rawInput: unknown): Promise<PlaceOrderResult> {
     include: { items: { where: { archived: false } } },
   });
   if (!stall) return { ok: false, error: "That stall is not on the court today." };
+  if (stall.paused) return { ok: false, error: `${stall.name} has paused new orders for a while. Try again soon.` };
   if (!isValidPickupSlot(input.pickupSlot, stall.openTime, stall.closeTime)) {
     return {
       ok: false,
@@ -191,9 +200,15 @@ export async function placeOrder(rawInput: unknown): Promise<PlaceOrderResult> {
     };
   }
 
-  const tokenDay = campusDate();
+  const tokenDay = serviceDay(stall.openTime, stall.closeTime);
   for (let attempt = 0; ; attempt += 1) {
     const token = randomToken();
+    // Never hand out a token that an order still waiting at this stall carries,
+    // even one from the previous day (24-hour counters run through midnight).
+    const inUse = await prisma.order.count({
+      where: { stallId: stall.id, token, status: { in: [...OPEN_STATUSES] } },
+    });
+    if (inUse && attempt < 19) continue;
     try {
       const order = await prisma.order.create({
         data: {
@@ -270,6 +285,8 @@ export async function cancelOwnOrder(rawOrderId: unknown): Promise<ActionResult>
       select: { status: true },
     });
     if (!order) return { ok: false, error: "Order not found." };
+    if (order.status === "CANCELLED") return { ok: false, error: "This order was already cancelled." };
+    if (order.status === "COLLECTED") return { ok: false, error: "This order was already collected." };
     return { ok: false, error: "The stall has already started on this order, so it can no longer be cancelled." };
   }
   revalidatePath("/orders");
@@ -321,22 +338,75 @@ export async function lookupVendorOrder(rawQuery: unknown): Promise<LookupResult
   if (!vendor) return { ok: false, error: "Sign in at the stall counter first." };
   const query = cleanText(rawQuery, 200);
 
-  let where: Prisma.OrderWhereInput;
+  const include = { ...vendorOrderInclude, stall: { select: { name: true } } };
+  let order;
   if (query.startsWith("IWF-FOOD|")) {
     const qr = await verifyQrPayload(query);
     if (!qr) return { ok: false, error: "That QR code is not a valid food court ticket." };
-    where = { id: qr.orderId };
+    order = await prisma.order.findUnique({ where: { id: qr.orderId }, include });
   } else {
     const digits = query.replace(/^IWF-?/i, "").trim();
     if (!/^\d{4}$/.test(digits)) return { ok: false, error: "Type the 4 digits of the token, like 4821." };
-    // Tokens repeat across days, so a typed one means today's order.
-    where = { stallId: vendor.stallId, token: `IWF-${digits}`, tokenDay: campusDate() };
+    const token = `IWF-${digits}`;
+    // Tokens repeat across days: prefer the order still waiting, else this shift's.
+    const stall = await prisma.stall.findUnique({
+      where: { id: vendor.stallId },
+      select: { openTime: true, closeTime: true },
+    });
+    order =
+      (await prisma.order.findFirst({
+        where: { stallId: vendor.stallId, token, status: { in: [...OPEN_STATUSES] } },
+        orderBy: { createdAt: "desc" },
+        include,
+      })) ??
+      (stall
+        ? await prisma.order.findFirst({
+            where: { stallId: vendor.stallId, token, tokenDay: serviceDay(stall.openTime, stall.closeTime) },
+            include,
+          })
+        : null);
   }
 
-  const order = await prisma.order.findFirst({ where, include: { ...vendorOrderInclude, stall: { select: { name: true } } } });
   if (!order) return { ok: false, error: "No order with that token at this stall today." };
   if (order.stallId !== vendor.stallId) {
     return { ok: false, error: `${order.token} is an order for ${order.stall.name}, not this stall.` };
   }
   return { ok: true, order: toVendorOrder(order) };
+}
+
+type ReorderResult =
+  | { ok: true; stall: { id: string; name: string }; lines: CartLine[]; skipped: string[] }
+  | { ok: false; error: string };
+
+// "Order again": the same items at today's prices, leaving out anything sold
+// out or taken off the menu since.
+export async function reorderLines(rawOrderId: unknown): Promise<ReorderResult> {
+  const employee = await getEmployeeSession();
+  if (!employee) return { ok: false, error: "Your sign-in has ended. Sign in again." };
+  const orderId = cleanText(rawOrderId, 40);
+  if (!ORDER_ID_PATTERN.test(orderId)) return { ok: false, error: "Order not found." };
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, employeeId: employee.employeeId },
+    include: { stall: { select: { id: true, name: true } }, items: { include: { menuItem: true } } },
+  });
+  if (!order) return { ok: false, error: "Order not found." };
+
+  const lines: CartLine[] = [];
+  const skipped: string[] = [];
+  for (const line of order.items) {
+    const item = line.menuItem;
+    if (item.archived || !item.available) {
+      skipped.push(line.name);
+      continue;
+    }
+    lines.push({
+      menuItemId: item.id,
+      name: item.name,
+      priceInr: effectivePrice(item),
+      veg: item.veg,
+      qty: Math.min(line.qty, MAX_QTY_PER_LINE),
+    });
+  }
+  if (!lines.length) return { ok: false, error: "None of those items are on the menu right now." };
+  return { ok: true, stall: order.stall, lines, skipped };
 }
