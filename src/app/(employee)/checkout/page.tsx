@@ -10,7 +10,7 @@ export const metadata = { title: "Checkout" };
 export default async function CheckoutPage() {
   const session = await getEmployeeSession();
   const stalls = await prisma.stall.findMany({
-    select: { id: true, name: true, openTime: true, closeTime: true },
+    select: { id: true, name: true, openTime: true, closeTime: true, paused: true },
   });
   const stallsById: Record<string, CheckoutStall> = Object.fromEntries(
     stalls.map((stall) => [
@@ -19,7 +19,8 @@ export default async function CheckoutPage() {
         name: stall.name,
         openTime: stall.openTime,
         closeTime: stall.closeTime,
-        slots: getPickupSlots(stall.openTime, stall.closeTime),
+        paused: stall.paused,
+        slots: stall.paused ? [] : getPickupSlots(stall.openTime, stall.closeTime),
       },
     ]),
   );

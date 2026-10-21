@@ -2,7 +2,8 @@ import { redirect } from "next/navigation";
 import { CatalogueEditor } from "@/components/catalogue-editor";
 import { SiteHeader } from "@/components/site-header";
 import { buttonVariants } from "@/components/ui/button";
-import { changeVendorPin } from "@/lib/catalogue-actions";
+import { changeVendorPin, setStallPaused, updateStallHours } from "@/lib/catalogue-actions";
+import { crossesMidnight, hoursLabel, isAllDay } from "@/lib/hours";
 import { CATALOGUE_ERRORS, CATALOGUE_OK } from "@/lib/catalogue-messages";
 import { prisma } from "@/lib/prisma";
 import { getVendorSession } from "@/lib/session";
@@ -57,9 +58,58 @@ export default async function VendorMenuPage({
         </div>
 
         <section className="mt-10 rounded-xl border bg-card p-4">
+          <h2 className="font-medium">Counter hours</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Now {hoursLabel(stall.openTime, stall.closeTime)} (IST)
+            {crossesMidnight(stall.openTime, stall.closeTime) ? ", past midnight" : ""}. Employees can book pickup
+            slots inside these hours. A closing time earlier than the opening time runs past midnight.
+          </p>
+          <form action={updateStallHours} className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="openTime">
+                Opens
+              </label>
+              <input id="openTime" name="openTime" type="time" defaultValue={stall.openTime} className={field} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="closeTime">
+                Closes
+              </label>
+              <input id="closeTime" name="closeTime" type="time" defaultValue={stall.closeTime} className={field} />
+            </div>
+            <label className="flex items-center gap-2 self-end pb-2 text-sm">
+              <input
+                type="checkbox"
+                name="allDay"
+                value="1"
+                defaultChecked={isAllDay(stall.openTime, stall.closeTime)}
+                className="size-4"
+              />
+              Open 24 hours
+            </label>
+            <div className="sm:col-span-3 flex justify-end">
+              <button type="submit" className={buttonVariants({ variant: "outline" })}>
+                Save hours
+              </button>
+            </div>
+          </form>
+          <form action={setStallPaused} className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+            <p className="text-sm">
+              {stall.paused
+                ? "New orders are paused. Employees see the stall as paused."
+                : "Too busy, or out of something? Pause new orders for a while."}
+            </p>
+            <input type="hidden" name="paused" value={stall.paused ? "0" : "1"} />
+            <button type="submit" className={buttonVariants({ variant: stall.paused ? "default" : "outline" })}>
+              {stall.paused ? "Resume orders" : "Pause new orders"}
+            </button>
+          </form>
+        </section>
+
+        <section className="mt-6 rounded-xl border bg-card p-4">
           <h2 className="font-medium">Counter PIN</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Every seeded stall starts with the demo PIN. Set your own so only your staff can open this queue.
+            Set your own PIN so only your staff can open this queue. Changing it signs out every other tablet.
           </p>
           <form action={changeVendorPin} className="mt-3 grid gap-3 sm:grid-cols-3">
             <div className="space-y-1">

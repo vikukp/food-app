@@ -18,6 +18,7 @@ export type StallCardData = {
   busyLevel: string;
   accent: string;
   open: boolean;
+  paused: boolean;
   openTime: string;
   closeTime: string;
 };
@@ -77,7 +78,7 @@ export function StallGrid({ stalls }: { stalls: StallCardData[] }) {
                   <div className="flex items-start justify-between gap-2">
                     <CardTitle className="text-base">{stall.name}</CardTitle>
                     <Badge variant={stall.open ? "default" : "secondary"}>
-                      {stall.open ? "Open" : "Closed"}
+                      {stall.paused ? "Paused" : stall.open ? "Open" : "Closed"}
                     </Badge>
                   </div>
                   <CardDescription>

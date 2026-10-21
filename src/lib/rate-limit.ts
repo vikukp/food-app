@@ -21,13 +21,19 @@ export function consume(key: string, limit: number, windowMs: number) {
   const bucket = buckets.get(key);
   if (!bucket || bucket.resetAt <= now) {
     buckets.set(key, { count: 1, resetAt: now + windowMs });
-    return { ok: true, retryAfterSec: 0 };
+    return { ok: 1 <= limit, retryAfterSec: 0, count: 1 };
   }
   bucket.count += 1;
   if (bucket.count > limit) {
-    return { ok: false, retryAfterSec: Math.ceil((bucket.resetAt - now) / 1000) };
+    return { ok: false, retryAfterSec: Math.ceil((bucket.resetAt - now) / 1000), count: bucket.count };
   }
-  return { ok: true, retryAfterSec: 0 };
+  return { ok: true, retryAfterSec: 0, count: bucket.count };
+}
+
+// How many hits a bucket has in its current window, without adding one.
+export function peek(key: string) {
+  const bucket = buckets.get(key);
+  return bucket && bucket.resetAt > Date.now() ? bucket.count : 0;
 }
 
 export function clearBucket(key: string) {

@@ -1,4 +1,4 @@
-import { campusDate } from "@/lib/hours";
+import { serviceDay } from "@/lib/hours";
 import { OPEN_STATUSES } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 import { toVendorOrder, vendorOrderInclude, type VendorDaySummary } from "@/lib/vendor-orders";
@@ -23,22 +23,36 @@ export async function listVendorOrders(stallId: string) {
   return [...active, ...collected.reverse()].map(toVendorOrder);
 }
 
-// Changes whenever any of the stall's orders is placed or moves on, so the
+async function stallServiceDay(stallId: string) {
+  const stall = await prisma.stall.findUnique({ where: { id: stallId }, select: { openTime: true, closeTime: true } });
+  return stall ? serviceDay(stall.openTime, stall.closeTime) : "";
+}
+
+// Changes whenever any of the stall's orders is placed or moves on, or the
+// trading day rolls over (the "Today" numbers reset), so the
 // counter's 3-second poll can be answered with 304 when nothing happened.
 export async function vendorQueueVersion(stallId: string) {
-  const { _max, _count } = await prisma.order.aggregate({
+  // Counts per status as well as the newest update: every status change moves
+  // a count, so it shows even if two writes commit out of timestamp order.
+  const rows = await prisma.order.groupBy({
+    by: ["status"],
     where: { stallId },
     _max: { updatedAt: true },
     _count: { _all: true },
   });
+  const counts = rows
+    .map((row) => `${row.status}:${row._count._all}`)
+    .sort()
+    .join(",");
+  const newest = Math.max(0, ...rows.map((row) => row._max.updatedAt?.getTime() ?? 0));
   // Includes the stall, so a shared browser never reuses another stall's copy.
-  return `"${stallId}-${_count._all}-${_max.updatedAt?.getTime() ?? 0}"`;
+  return `"${stallId}-${await stallServiceDay(stallId)}-${counts}-${newest}"`;
 }
 
 // Today's numbers for the counter (campus day). Cancelled orders are counted
 // separately and left out of revenue and top items.
 export async function vendorDaySummary(stallId: string): Promise<VendorDaySummary> {
-  const tokenDay = campusDate();
+  const tokenDay = await stallServiceDay(stallId);
   const [byStatus, top] = await Promise.all([
     prisma.order.groupBy({
       by: ["status"],

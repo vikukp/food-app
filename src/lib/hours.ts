@@ -22,6 +22,16 @@ export function campusDate(date = new Date()) {
   return campusDay.format(date);
 }
 
+// The trading day an order belongs to. A counter open past midnight keeps the
+// evening's date until it closes, so one shift is one day: one run of tokens,
+// one "Today" summary.
+export function serviceDay(openTime: string, closeTime: string, date = new Date()) {
+  if (crossesMidnight(openTime, closeTime) && campusMinutesNow(date) < parseHm(closeTime)) {
+    return campusDate(new Date(date.getTime() - 24 * 60 * 60_000));
+  }
+  return campusDate(date);
+}
+
 export function campusMinutesNow(date = new Date()) {
   const parts = campusClock.formatToParts(date);
   const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0) % 24;
