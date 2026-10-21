@@ -571,6 +571,19 @@ await step("a stall can pause new orders, and set its hours", async () => {
   await vendor.context().close();
 });
 
+await step("the counter downloads today's sales as CSV", async () => {
+  const vendor = await vendorSignIn("vendor-export");
+  const [download] = await Promise.all([
+    vendor.waitForEvent("download"),
+    vendor.getByRole("button", { name: "Download CSV" }).click(),
+  ]);
+  const text = readFileSync(await download.path(), "utf8");
+  check(download.suggestedFilename().startsWith("momos-"), `file name ${download.suggestedFilename()}`);
+  check(text.includes("Token,Placed (IST),Pickup,Status") && text.includes(token), "CSV is missing the header or today's order");
+  await vendor.context().close();
+  return `${text.trim().split("\n").length - 1} orders in ${download.suggestedFilename()}`;
+});
+
 await step("only food court admins see the admin screen, and PIN resets need a fresh code", async () => {
   // The page streams behind the root loading screen, so "not found" arrives as
   // content rather than a 404 status: check what renders.

@@ -69,6 +69,7 @@ With `DEMO_MODE=1`:
 - **Find token** filters every tab by the digits typed; **Find** looks up today's order with that token even if it has dropped off the list. A QR scan checks the ticket's signature and refuses tickets for other stalls.
 - The queue refreshes every 3 seconds and costs almost nothing when nothing has changed (the server answers 304).
 - Two tablets can run the same stall: a tap made on a stale screen is refused instead of skipping a step.
+- **Download CSV** at the bottom exports a trading day's orders (token, times, status, employee, items with prices, payment, total, cancel reason) for the stall's accounts. Text that a spreadsheet would run as a formula is defused.
 
 ## Employee sign-in
 
