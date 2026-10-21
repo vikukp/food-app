@@ -118,6 +118,14 @@ Employees whose mobile number is listed in `ADMIN_PHONES` (comma-separated, e.g.
 
 Stall hours are campus time (IST). Most stalls serve lunch through the evening, a few (Idli & Filter Coffee, Sandwich & Wrap Lab, Maggi & Momos) run 24x7, and the biryani / meals counters are lunch-only. Pickup slots are 15-minute windows from about 10 minutes out until the stall closes, so the demo works at any hour. Hours may cross midnight (e.g. `18:00`–`02:00`): the stall is open on both sides of midnight and takes slots up to closing.
 
+## Docker
+
+```bash
+docker compose up -d        # builds the image, serves on port 43123
+```
+
+The database (`/data/food-court.db`) and, unless you set `SESSION_SECRET`, a generated signing key (`/data/session-secret`) live on the `food-court-data` volume, so they survive restarts and image upgrades. On start the container applies schema changes and seeds missing stalls (printing their PINs on first run outside demo mode: `docker compose logs app`). Configure it with the environment variables in `docker-compose.yml`; the checklist below applies unchanged. Back up with `docker compose exec app sh -c 'cp /data/food-court.db /data/backup.db'`, or by copying the volume.
+
 ## Deploying
 
 A checklist for running this for real, on one server:

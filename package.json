@@ -10,7 +10,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "node --import tsx --test \"tests/unit/**/*.test.ts\"",
     "test:e2e": "node e2e/run.mjs",
-    "db:setup": "prisma generate && prisma db push && prisma db seed"
+    "db:setup": "node scripts/ensure-secret.mjs && prisma generate && prisma db push && prisma db seed"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
