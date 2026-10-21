@@ -24,7 +24,9 @@ export function VendorQueue({ initial }: { initial: VendorOrder[] }) {
   const refresh = useCallback(async () => {
     const startedAt = edits.current;
     try {
-      const res = await fetch("/api/vendor/orders", { cache: "no-store" });
+      // "no-cache" revalidates with the ETag: an unchanged queue comes back as a
+      // 304 that the browser answers from its copy.
+      const res = await fetch("/api/vendor/orders", { cache: "no-cache" });
       if (!res.ok) {
         setLoadError("Could not refresh the queue.");
         return;
