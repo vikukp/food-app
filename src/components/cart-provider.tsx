@@ -9,6 +9,7 @@ import {
   type CartLine,
   type CartState,
 } from "@/lib/cart";
+import { MAX_QTY_PER_LINE } from "@/lib/validation";
 
 type CartContextValue = {
   cart: CartState;
@@ -20,6 +21,7 @@ type CartContextValue = {
     item: Omit<CartLine, "qty">,
   ) => { replaced: boolean };
   setQty: (menuItemId: string, qty: number) => void;
+  setPrices: (prices: Record<string, number>) => void;
   clear: () => void;
 };
 
@@ -33,10 +35,34 @@ function emit() {
   listeners.forEach((listener) => listener());
 }
 
+function isCartLine(value: unknown): value is CartLine {
+  if (typeof value !== "object" || value === null) return false;
+  const line = value as Record<string, unknown>;
+  return (
+    typeof line.menuItemId === "string" &&
+    typeof line.name === "string" &&
+    Number.isInteger(line.priceInr) &&
+    typeof line.veg === "boolean" &&
+    Number.isInteger(line.qty) &&
+    (line.qty as number) > 0
+  );
+}
+
+// A saved bag from an older build or a hand-edited one must not crash the header.
 function readStorage(): CartState {
   try {
     const raw = localStorage.getItem(CART_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as CartState) : EMPTY_CART;
+    if (!raw) return EMPTY_CART;
+    const parsed = JSON.parse(raw) as Partial<CartState>;
+    if (typeof parsed.stallId !== "string" || typeof parsed.stallName !== "string") return EMPTY_CART;
+    if (!Array.isArray(parsed.items) || !parsed.items.every(isCartLine) || !parsed.items.length) {
+      return EMPTY_CART;
+    }
+    return {
+      stallId: parsed.stallId,
+      stallName: parsed.stallName,
+      items: parsed.items.map((line) => ({ ...line, qty: Math.min(line.qty, MAX_QTY_PER_LINE) })),
+    };
   } catch {
     return EMPTY_CART;
   }
@@ -54,9 +80,21 @@ function getServerSnapshot() {
   return EMPTY_CART;
 }
 
+// Another tab paid for or changed the bag: re-read it, so this tab cannot
+// place the same order twice or overwrite the other tab's edits.
+function onStorage(event: StorageEvent) {
+  if (event.key !== null && event.key !== CART_STORAGE_KEY) return;
+  didRead = false;
+  emit();
+}
+
 function subscribe(listener: () => void) {
+  if (listeners.size === 0) window.addEventListener("storage", onStorage);
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) window.removeEventListener("storage", onStorage);
+  };
 }
 
 function writeCart(next: CartState) {
@@ -94,7 +132,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       const existing = prev.items.find((line) => line.menuItemId === item.menuItemId);
       const items = existing
         ? prev.items.map((line) =>
-            line.menuItemId === item.menuItemId ? { ...line, qty: line.qty + 1 } : line,
+            line.menuItemId === item.menuItemId
+              ? { ...line, qty: Math.min(line.qty + 1, MAX_QTY_PER_LINE) }
+              : line,
           )
         : [...prev.items, { ...item, qty: 1 }];
       writeCart({ stallId: stall.id, stallName: stall.name, items });
@@ -109,9 +149,19 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       qty <= 0
         ? prev.items.filter((line) => line.menuItemId !== menuItemId)
         : prev.items.map((line) =>
-            line.menuItemId === menuItemId ? { ...line, qty } : line,
+            line.menuItemId === menuItemId ? { ...line, qty: Math.min(qty, MAX_QTY_PER_LINE) } : line,
           );
     writeCart(items.length ? { ...prev, items } : EMPTY_CART);
+  }, []);
+
+  const setPrices = useCallback((prices: Record<string, number>) => {
+    const prev = getSnapshot();
+    writeCart({
+      ...prev,
+      items: prev.items.map((line) =>
+        prices[line.menuItemId] === undefined ? line : { ...line, priceInr: prices[line.menuItemId] },
+      ),
+    });
   }, []);
 
   const clear = useCallback(() => writeCart(EMPTY_CART), []);
@@ -124,9 +174,10 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       hydrated,
       addItem,
       setQty,
+      setPrices,
       clear,
     }),
-    [addItem, cart, clear, hydrated, setQty],
+    [addItem, cart, clear, hydrated, setPrices, setQty],
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

@@ -15,6 +15,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { formatInr } from "@/lib/money";
+import { MAX_QTY_PER_LINE } from "@/lib/validation";
 
 export function CartButton() {
   const { count, hydrated } = useCart();
@@ -80,11 +81,22 @@ function CartPanel() {
                 <p className="text-xs text-muted-foreground">{formatInr(item.priceInr)} each</p>
               </div>
               <div className="flex items-center gap-1">
-                <Button size="icon-xs" variant="outline" onClick={() => setQty(item.menuItemId, item.qty - 1)}>
+                <Button
+                  size="icon-xs"
+                  variant="outline"
+                  aria-label={`One less ${item.name}`}
+                  onClick={() => setQty(item.menuItemId, item.qty - 1)}
+                >
                   −
                 </Button>
                 <span className="w-5 text-center text-sm tabular-nums">{item.qty}</span>
-                <Button size="icon-xs" variant="outline" onClick={() => setQty(item.menuItemId, item.qty + 1)}>
+                <Button
+                  size="icon-xs"
+                  variant="outline"
+                  aria-label={`One more ${item.name}`}
+                  disabled={item.qty >= MAX_QTY_PER_LINE}
+                  onClick={() => setQty(item.menuItemId, item.qty + 1)}
+                >
                   +
                 </Button>
               </div>

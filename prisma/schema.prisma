@@ -18,6 +18,8 @@ model Stall {
   vegOnly     Boolean    @default(false)
   busyLevel   String
   vendorPinHash String
+  // Bumped on PIN change; vendor sessions carrying an older value stop working.
+  sessionVersion Int     @default(0)
   accent      String
   items       MenuItem[]
   orders      Order[]
@@ -41,7 +43,9 @@ model MenuItem {
 
 model Order {
   id            String      @id @default(cuid())
-  token         String      @unique
+  // IWF-1000..IWF-9999, unique per stall per campus day so tokens never run out.
+  token         String
+  tokenDay      String      @default("")
   employeeId    String
   employeeName  String
   stallId       String
@@ -55,6 +59,7 @@ model Order {
   updatedAt     DateTime    @updatedAt
   items         OrderItem[]
 
+  @@unique([stallId, tokenDay, token])
   @@index([employeeId])
   @@index([stallId, status])
 }

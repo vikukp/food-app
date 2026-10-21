@@ -10,8 +10,16 @@ if (process.env.SESSION_SECRET && process.env.SESSION_SECRET.length >= 32) {
   process.exit(0);
 }
 
-const existing = existsSync(envLocal) ? readFileSync(envLocal, "utf8") : "";
-if (/^\s*SESSION_SECRET\s*=\s*\S{32,}/m.test(existing)) {
+// npm scripts do not load dotenv files, so look in every file Next would read;
+// otherwise a secret set in .env.production is silently overridden by .env.local.
+const read = (name) => {
+  const file = resolve(process.cwd(), name);
+  return existsSync(file) ? readFileSync(file, "utf8") : "";
+};
+const hasSecret = (text) => /^\s*SESSION_SECRET\s*=\s*["']?[^\s"'#]{32,}/m.test(text);
+const envFiles = [".env", ".env.production", ".env.production.local", ".env.development", ".env.development.local"];
+const existing = read(".env.local");
+if ([existing, ...envFiles.map(read)].some(hasSecret)) {
   process.exit(0);
 }
 

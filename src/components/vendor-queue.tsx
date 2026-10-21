@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { VegDot } from "@/components/veg-dot";
 import { Badge } from "@/components/ui/badge";
@@ -17,24 +17,31 @@ export function VendorQueue({ initial }: { initial: VendorOrder[] }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("active");
   const [pending, startTransition] = useTransition();
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Bumped on every local status change, so a poll that started before it
+  // cannot land afterwards and bring back the old button.
+  const edits = useRef(0);
+
+  const refresh = useCallback(async () => {
+    const startedAt = edits.current;
+    try {
+      const res = await fetch("/api/vendor/orders", { cache: "no-store" });
+      if (!res.ok) {
+        setLoadError("Could not refresh the queue.");
+        return;
+      }
+      const data = (await res.json()) as VendorOrder[];
+      if (edits.current !== startedAt) return;
+      setOrders(data);
+      setLoadError(null);
+    } catch {
+      setLoadError("Queue will catch up when the network is back.");
+    }
+  }, []);
 
   useEffect(() => {
-    const timer = setInterval(async () => {
-      try {
-        const res = await fetch("/api/vendor/orders", { cache: "no-store" });
-        if (!res.ok) {
-          setLoadError("Could not refresh the queue.");
-          return;
-        }
-        const data = (await res.json()) as VendorOrder[];
-        setOrders(data);
-        setLoadError(null);
-      } catch {
-        setLoadError("Queue will catch up when the network is back.");
-      }
-    }, 3000);
+    const timer = setInterval(refresh, 3000);
     return () => clearInterval(timer);
-  }, []);
+  }, [refresh]);
 
   const visible = orders.filter((order) => {
     if (tab === "active") return order.status === "PLACED" || order.status === "PREPARING";
@@ -108,9 +115,11 @@ export function VendorQueue({ initial }: { initial: VendorOrder[] }) {
                       disabled={pending}
                       onClick={() => {
                         startTransition(async () => {
-                          const result = await advanceVendorOrder(order.id);
+                          const result = await advanceVendorOrder(order.id, order.status);
+                          edits.current += 1;
                           if (!result.ok) {
                             toast.error(result.error);
+                            await refresh();
                             return;
                           }
                           setOrders((current) =>
