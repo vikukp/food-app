@@ -17,7 +17,8 @@ services:
       # TWILIO_ACCOUNT_SID: ""
       # TWILIO_AUTH_TOKEN: ""
       # TWILIO_FROM: ""
-      # ADMIN_EMPLOYEE_IDS: "HPE-10001"
+      # Food court managers (by mobile number, see README):
+      # ADMIN_PHONES: "9845012345"
       # For a demo only:
       # DEMO_MODE: "1"
 volumes:
