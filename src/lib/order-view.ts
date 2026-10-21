@@ -36,6 +36,8 @@ export type OrderView = {
   qrDataUrl: string;
 };
 
+export type OrderStatusUpdate = Pick<OrderView, "status" | "statusLabel">;
+
 export async function toOrderView(order: OrderRecord): Promise<OrderView> {
   const payload = await buildQrPayload(order.token, order.id);
   const qrDataUrl = await QRCode.toDataURL(payload, {
