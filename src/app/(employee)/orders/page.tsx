@@ -3,7 +3,7 @@ import { CartButton } from "@/components/cart-sheet";
 import { SiteHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { adminEmployeeIds } from "@/lib/admin";
+import { isAdmin } from "@/lib/admin";
 import { formatInr } from "@/lib/money";
 import { statusLabel } from "@/lib/orders";
 import { maskPhone } from "@/lib/phone";
@@ -37,7 +37,7 @@ export default async function OrdersPage() {
             <Link href="/enter?reset=1" className="font-medium text-emerald-800 underline-offset-4 hover:underline">
               Change PIN
             </Link>
-            {adminEmployeeIds().has(session.employeeId.toUpperCase()) ? (
+            {isAdmin(session) ? (
               <>
                 {" · "}
                 <Link href="/admin" className="font-medium text-emerald-800 underline-offset-4 hover:underline">
