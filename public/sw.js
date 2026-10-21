@@ -1,14 +1,16 @@
 // Keeps order tickets on screen without a signal: the food court is often in
 // a basement where the phone drops off the network right at the counter.
 //
-// - A ticket page (/orders/<id>) is fetched from the network when possible
-//   and the copy is kept; offline, the kept copy is shown.
+// - A ticket page saves a copy of itself once it has rendered (see
+//   src/lib/offline-tickets.ts; app navigation never reaches this worker as a
+//   page load). Online, pages always come from the network; offline, a saved
+//   ticket is shown.
 // - Built JS/CSS (/_next/static, content-hashed) is kept so that copy works.
 // - Any other page offline gets a short "you're offline" page listing kept tickets.
 // - Signing out answers with Clear-Site-Data, which drops all of this.
 const TICKETS = "iwf-tickets-v1";
 const ASSETS = "iwf-assets-v1";
-const MAX_TICKETS = 10;
+const MAX_ASSETS = 300;
 const TICKET_PATH = /^\/orders\/[a-z0-9]{10,40}$/i;
 
 self.addEventListener("install", () => self.skipWaiting());
@@ -23,13 +25,6 @@ self.addEventListener("activate", (event) => {
     })(),
   );
 });
-
-async function keepTicket(request, response) {
-  const cache = await caches.open(TICKETS);
-  await cache.put(request, response);
-  const kept = await cache.keys();
-  for (const old of kept.slice(0, Math.max(0, kept.length - MAX_TICKETS))) await cache.delete(old);
-}
 
 async function offlinePage() {
   const kept = await (await caches.open(TICKETS)).keys();
@@ -60,7 +55,12 @@ self.addEventListener("fetch", (event) => {
         const hit = await cache.match(request);
         if (hit) return hit;
         const response = await fetch(request);
-        if (response.ok) await cache.put(request, response.clone());
+        if (response.ok) {
+          await cache.put(request, response.clone());
+          // Old builds' files pile up otherwise; the oldest go first.
+          const kept = await cache.keys();
+          for (const old of kept.slice(0, Math.max(0, kept.length - MAX_ASSETS))) await cache.delete(old);
+        }
         return response;
       })(),
     );
@@ -72,15 +72,10 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     (async () => {
       try {
-        const response = await fetch(request);
-        // Only keep a real ticket, not a redirect to sign-in or an error page.
-        if (TICKET_PATH.test(url.pathname) && response.ok && !response.redirected) {
-          await keepTicket(request, response.clone());
-        }
-        return response;
+        return await fetch(request);
       } catch {
         if (TICKET_PATH.test(url.pathname)) {
-          const kept = await (await caches.open(TICKETS)).match(request);
+          const kept = await (await caches.open(TICKETS)).match(url.pathname);
           if (kept) return kept;
         }
         return offlinePage();
