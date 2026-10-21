@@ -2,10 +2,17 @@ import { redirect } from "next/navigation";
 import { CatalogueEditor } from "@/components/catalogue-editor";
 import { SiteHeader } from "@/components/site-header";
 import { buttonVariants } from "@/components/ui/button";
-import { changeVendorPin, setStallPaused, updateStallCapacity, updateStallHours } from "@/lib/catalogue-actions";
+import {
+  changeVendorPin,
+  setStallPaused,
+  updateStallCapacity,
+  updateStallGstin,
+  updateStallHours,
+} from "@/lib/catalogue-actions";
 import { crossesMidnight, hoursLabel, isAllDay } from "@/lib/hours";
 import { CATALOGUE_ERRORS, CATALOGUE_OK } from "@/lib/catalogue-messages";
 import { prisma } from "@/lib/prisma";
+import { ratingCopy, recentFeedback, stallRatings } from "@/lib/ratings";
 import { getVendorSession } from "@/lib/session";
 
 export const metadata = { title: "Menu and prices" };
@@ -27,6 +34,8 @@ export default async function VendorMenuPage({
   });
   if (!stall) redirect("/vendor/login");
 
+  const [feedback, ratings] = await Promise.all([recentFeedback(stall.id), stallRatings([stall.id])]);
+  const rating = ratings.get(stall.id);
   const { ok, error } = await searchParams;
   const okMessage = ok ? CATALOGUE_OK[ok] ?? null : null;
   const errorMessage = error ? CATALOGUE_ERRORS[error] ?? null : null;
@@ -58,6 +67,30 @@ export default async function VendorMenuPage({
         </div>
 
         <section className="mt-10 rounded-xl border bg-card p-4">
+          <h2 className="font-medium">Feedback</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {rating
+              ? `Last 30 days: ${rating.average.toFixed(1)} out of 5 from ${rating.count} ratings. ${
+                  ratingCopy(rating) ? "Employees see it on your stall." : "Employees see it once 5 people have rated."
+                }`
+              : "No ratings yet. Employees can rate an order after collecting it."}
+          </p>
+          {feedback.length ? (
+            <ul className="mt-3 divide-y text-sm">
+              {feedback.map((f) => (
+                <li key={`${f.token}-${f.ratedAt?.toISOString()}`} className="flex gap-3 py-2">
+                  <span className={`w-14 shrink-0 font-medium ${(f.rating ?? 0) <= 2 ? "text-destructive" : ""}`}>
+                    {"★".repeat(f.rating ?? 0)}
+                  </span>
+                  <span className="min-w-0 flex-1">{f.ratingComment ?? <span className="text-muted-foreground">No comment</span>}</span>
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">{f.token}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+
+        <section className="mt-6 rounded-xl border bg-card p-4">
           <h2 className="font-medium">Counter hours</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Now {hoursLabel(stall.openTime, stall.closeTime)} (IST)
@@ -142,6 +175,28 @@ export default async function VendorMenuPage({
             <input type="hidden" name="paused" value={stall.paused ? "0" : "1"} />
             <button type="submit" className={buttonVariants({ variant: stall.paused ? "default" : "outline" })}>
               {stall.paused ? "Resume orders" : "Pause new orders"}
+            </button>
+          </form>
+        </section>
+
+        <section className="mt-6 rounded-xl border bg-card p-4">
+          <h2 className="font-medium">GSTIN for receipts</h2>
+          <form action={updateStallGstin} className="mt-3 flex flex-wrap items-end gap-2">
+            <div className="min-w-48 flex-1 space-y-1">
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="gstin">
+                GSTIN (leave empty if you do not have one)
+              </label>
+              <input
+                id="gstin"
+                name="gstin"
+                maxLength={15}
+                defaultValue={stall.gstin ?? ""}
+                placeholder="29ABCDE1234F1Z5"
+                className={`${field} font-mono uppercase`}
+              />
+            </div>
+            <button type="submit" className={buttonVariants({ variant: "outline" })}>
+              Save
             </button>
           </form>
         </section>

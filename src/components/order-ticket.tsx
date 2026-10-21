@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { VegDot } from "@/components/veg-dot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cancelOwnOrder, reorderLines } from "@/lib/actions";
+import { cancelOwnOrder, rateOrder, reorderLines } from "@/lib/actions";
 import { formatInr } from "@/lib/money";
 import type { OrderStatusUpdate, OrderView } from "@/lib/order-view";
 import { employeeCanCancel, isOpenStatus } from "@/lib/orders";
@@ -195,6 +195,15 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
         ) : null}
       </div>
 
+      {collected && order.rating === null ? (
+        <RateOrder orderId={order.id} stallName={order.stallName} onRated={(rating) => setOrder((o) => ({ ...o, rating }))} />
+      ) : null}
+      {order.rating !== null ? (
+        <p className="text-center text-sm text-muted-foreground">
+          You rated this {order.rating} out of 5. Thanks, it goes to {order.stallName}.
+        </p>
+      ) : null}
+
       <div className="rounded-xl border bg-card p-4">
         <h2 className="font-medium">Items</h2>
         <ul className="mt-2 space-y-2 text-sm">
@@ -212,7 +221,12 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
           <span>Paid with {order.paymentLabel}</span>
           <span className="font-semibold">{formatInr(order.totalInr)}</span>
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">Ref {order.paymentRef}</p>
+        <p className="mt-2 flex justify-between text-xs text-muted-foreground">
+          <span>Ref {order.paymentRef}</span>
+          <Link href={`/orders/${order.id}/receipt`} className="font-medium underline underline-offset-4">
+            Receipt
+          </Link>
+        </p>
       </div>
 
       {error ? <p className="text-center text-sm text-destructive">{error}</p> : null}
@@ -226,5 +240,76 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+function RateOrder({
+  orderId,
+  stallName,
+  onRated,
+}: {
+  orderId: string;
+  stallName: string;
+  onRated: (rating: number) => void;
+}) {
+  const [stars, setStars] = useState(0);
+  const [comment, setComment] = useState("");
+  const [hidden, setHidden] = useState(false);
+  const [saving, startSaving] = useTransition();
+  if (hidden) return null;
+
+  return (
+    <section aria-label="Rate this order" className="rounded-xl border bg-card p-4">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="font-medium">How was it?</h2>
+        <button type="button" className="text-xs text-muted-foreground underline" onClick={() => setHidden(true)}>
+          Not now
+        </button>
+      </div>
+      <div role="radiogroup" aria-label="Stars" className="mt-2 flex gap-1">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            role="radio"
+            aria-checked={stars === n}
+            aria-label={`${n} star${n > 1 ? "s" : ""}`}
+            onClick={() => setStars(n)}
+            className={`text-2xl leading-none ${n <= stars ? "text-amber-500" : "text-muted-foreground/40"}`}
+          >
+            ★
+          </button>
+        ))}
+      </div>
+      {stars ? (
+        <>
+          <label className="mt-3 block text-xs font-medium text-muted-foreground" htmlFor="rating-comment">
+            {stars <= 2 ? `What went wrong? ${stallName} sees this.` : "Anything to add? (optional)"}
+          </label>
+          <textarea
+            id="rating-comment"
+            maxLength={280}
+            rows={2}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm"
+          />
+          <Button
+            className="mt-2"
+            size="sm"
+            disabled={saving}
+            onClick={() =>
+              startSaving(async () => {
+                const result = await rateOrder(orderId, stars, comment);
+                if (!result.ok) return void toast.error(result.error);
+                onRated(stars);
+              })
+            }
+          >
+            {saving ? "Sending…" : "Send"}
+          </Button>
+        </>
+      ) : null}
+    </section>
   );
 }

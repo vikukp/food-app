@@ -17,6 +17,7 @@ type Stall = {
   open: boolean;
   waiting: number;
   summary: VendorDaySummary;
+  rating: { average: number; count: number } | null;
 };
 
 export function AdminStallRow({ stall }: { stall: Stall }) {
@@ -58,6 +59,7 @@ export function AdminStallRow({ stall }: { stall: Stall }) {
       <p className="mt-2 text-sm">
         {stall.summary.orders} orders · {formatInr(stall.summary.revenueInr)} · {stall.waiting} waiting
         {stall.summary.cancelled ? ` · ${stall.summary.cancelled} cancelled` : ""}
+        {stall.rating ? ` · ★ ${stall.rating.average.toFixed(1)} from ${stall.rating.count} (30 days)` : ""}
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <Button size="sm" variant="outline" disabled={pending} onClick={togglePause}>

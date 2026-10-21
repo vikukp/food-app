@@ -6,6 +6,7 @@ import { hoursLabel, isStallOpen } from "@/lib/hours";
 import { formatInr } from "@/lib/money";
 import { OPEN_STATUSES } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
+import { stallRatings } from "@/lib/ratings";
 import { canChangePin } from "@/lib/session";
 import { vendorDaySummary } from "@/lib/vendor-queries";
 
@@ -23,7 +24,10 @@ export default async function AdminPage() {
     _count: { _all: true },
   });
   const waitingBy = new Map(waiting.map((row) => [row.stallId, row._count._all]));
-  const summaries = await Promise.all(stalls.map((stall) => vendorDaySummary(stall.id)));
+  const [summaries, ratings] = await Promise.all([
+    Promise.all(stalls.map((stall) => vendorDaySummary(stall.id))),
+    stallRatings(),
+  ]);
   const total = summaries.reduce(
     (sum, s) => ({ orders: sum.orders + s.orders, revenueInr: sum.revenueInr + s.revenueInr }),
     { orders: 0, revenueInr: 0 },
@@ -53,6 +57,7 @@ export default async function AdminPage() {
                 open: !stall.paused && isStallOpen(stall.openTime, stall.closeTime),
                 waiting: waitingBy.get(stall.id) ?? 0,
                 summary: summaries[i],
+                rating: ratings.get(stall.id) ?? null,
               }}
             />
           ))}

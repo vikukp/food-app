@@ -2,6 +2,7 @@ import { CartButton, MobileCartBar } from "@/components/cart-sheet";
 import { SiteHeader } from "@/components/site-header";
 import { StallGrid } from "@/components/stall-grid";
 import { isStallOpen, waitCopy } from "@/lib/hours";
+import { ratingCopy, stallRatings } from "@/lib/ratings";
 import { activeOrderCounts } from "@/lib/stall-load";
 import { prisma } from "@/lib/prisma";
 import { getEmployeeSession } from "@/lib/session";
@@ -11,7 +12,7 @@ export const metadata = { title: "Stalls" };
 export default async function StallsPage() {
   const session = await getEmployeeSession();
   const rows = await prisma.stall.findMany({ orderBy: { name: "asc" } });
-  const active = await activeOrderCounts();
+  const [active, ratings] = await Promise.all([activeOrderCounts(), stallRatings()]);
   const stalls = rows
     .map((stall) => ({
       id: stall.id,
@@ -21,6 +22,7 @@ export default async function StallsPage() {
       location: stall.location,
       vegOnly: stall.vegOnly,
       wait: waitCopy(active.get(stall.id) ?? 0, stall.prepMinutes),
+      rating: ratingCopy(ratings.get(stall.id)),
       accent: stall.accent,
       open: !stall.paused && isStallOpen(stall.openTime, stall.closeTime),
       paused: stall.paused,

@@ -20,6 +20,8 @@ model Stall {
   vegOnly     Boolean    @default(false)
   // Set by the stall to stop new orders for a while (rush, out of gas, ...).
   paused      Boolean    @default(false)
+  // Shown on receipts. Optional until the stall adds it.
+  gstin       String?
   // Orders the counter can hand over per 15-minute pickup slot; full slots are not offered.
   slotCapacity Int       @default(12)
   // Usual minutes from "Start preparing" to ready, for wait estimates.
@@ -74,6 +76,10 @@ model Order {
   cancelledBy   String?
   cancelReason  String?
   // When each step happened, for the ticket's timeline and "waiting at the counter".
+  // Optional feedback once collected: 1-5 and a short comment.
+  rating        Int?
+  ratingComment String?
+  ratedAt       DateTime?
   preparingAt   DateTime?
   readyAt       DateTime?
   collectedAt   DateTime?
@@ -83,6 +89,7 @@ model Order {
   items         OrderItem[]
 
   @@unique([stallId, tokenDay, token])
+  @@index([stallId, ratedAt])
   @@index([employeeId])
   @@index([stallId, status])
   @@index([stallId, updatedAt])

@@ -417,3 +417,22 @@ export async function reorderLines(rawOrderId: unknown): Promise<ReorderResult> 
   if (!lines.length) return { ok: false, error: "None of those items are on the menu right now." };
   return { ok: true, stall: order.stall, lines, skipped };
 }
+
+// Feedback is optional and once per order, after it has been collected.
+export async function rateOrder(rawOrderId: unknown, rawRating: unknown, rawComment: unknown): Promise<ActionResult> {
+  const employee = await getEmployeeSession();
+  if (!employee) return { ok: false, error: "Your sign-in has ended. Sign in again." };
+  const orderId = cleanText(rawOrderId, 40);
+  const rating = toInt(rawRating);
+  const comment = cleanText(rawComment, 280) || null;
+  if (!ORDER_ID_PATTERN.test(orderId) || rating === null || rating < 1 || rating > 5) {
+    return { ok: false, error: "Pick 1 to 5 stars." };
+  }
+  const rated = await prisma.order.updateMany({
+    where: { id: orderId, employeeId: employee.employeeId, status: "COLLECTED", rating: null },
+    data: { rating, ratingComment: comment, ratedAt: new Date() },
+  });
+  if (rated.count === 0) return { ok: false, error: "This order can't be rated (already rated, or not collected yet)." };
+  revalidatePath(`/orders/${orderId}`);
+  return { ok: true };
+}
