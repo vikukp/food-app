@@ -25,7 +25,7 @@ export type VendorSession = {
   stallId: string;
 };
 
-type VendorClaims = VendorSession & { kind: "vendor" };
+type VendorClaims = { kind: "vendor"; stallId: string; sv: number };
 
 export const EMPLOYEE_SESSION_SECONDS = 60 * 60 * 24 * 7;
 export const VENDOR_SESSION_SECONDS = 60 * 60 * 12;
@@ -50,7 +50,9 @@ async function cookieOptions(maxAge: number) {
 
 async function readVendorClaims(token: string | undefined) {
   const claims = await verifyToken<VendorClaims>(token, sessionSecret());
-  return claims?.kind === "vendor" ? claims : null;
+  return claims?.kind === "vendor" && typeof claims.stallId === "string" && Number.isInteger(claims.sv)
+    ? claims
+    : null;
 }
 
 // The cookie only names the employee; the database decides whether it is still
@@ -78,11 +80,17 @@ export function canChangePin(session: EmployeeSession) {
   return session.auth === "otp" && Date.now() - session.authAt < PIN_CHANGE_WINDOW_MS;
 }
 
-export async function getVendorSession(): Promise<VendorSession | null> {
+// Like employees, the stall's row decides: changing the counter PIN signs out every other tablet.
+export const getVendorSession = cache(async (): Promise<VendorSession | null> => {
   const store = await cookies();
   const claims = await readVendorClaims(store.get(VENDOR_COOKIE)?.value);
-  return claims ? { stallId: claims.stallId } : null;
-}
+  if (!claims) return null;
+  const stall = await prisma.stall.findUnique({
+    where: { id: claims.stallId },
+    select: { sessionVersion: true },
+  });
+  return stall && stall.sessionVersion === claims.sv ? { stallId: claims.stallId } : null;
+});
 
 export async function startEmployeeSession(
   employee: { id: string; sessionVersion: number },
@@ -99,9 +107,13 @@ export async function startEmployeeSession(
   store.delete(SIGN_IN_DRAFT_COOKIE);
 }
 
-export async function setVendorSession(session: VendorSession) {
+export async function setVendorSession(stall: { stallId: string; sessionVersion: number }) {
   const store = await cookies();
-  const token = await signToken({ ...session, kind: "vendor" }, sessionSecret(), VENDOR_SESSION_SECONDS);
+  const token = await signToken(
+    { kind: "vendor", stallId: stall.stallId, sv: stall.sessionVersion },
+    sessionSecret(),
+    VENDOR_SESSION_SECONDS,
+  );
   store.set(VENDOR_COOKIE, token, await cookieOptions(VENDOR_SESSION_SECONDS));
 }
 

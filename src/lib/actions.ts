@@ -1,8 +1,10 @@
 "use server";
 
+import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { generateToken, nextStatus, type OrderStatus } from "@/lib/orders";
+import { campusDate } from "@/lib/hours";
+import { isOrderStatus, nextStatus, randomToken } from "@/lib/orders";
 import { effectivePrice } from "@/lib/pricing";
 import { verifyPin } from "@/lib/pin";
 import { isValidPickupSlot } from "@/lib/pickup-slots";
@@ -52,7 +54,7 @@ export async function loginVendor(formData: FormData) {
   }
   const stall = await prisma.stall.findUnique({
     where: { id: stallId },
-    select: { id: true, vendorPinHash: true },
+    select: { id: true, vendorPinHash: true, sessionVersion: true },
   });
   if (!stall) {
     redirect("/vendor/login?error=stall");
@@ -68,7 +70,7 @@ export async function loginVendor(formData: FormData) {
     redirect("/vendor/login?error=pin");
   }
   clearBucket(lockKey);
-  await setVendorSession({ stallId: stall.id });
+  await setVendorSession({ stallId: stall.id, sessionVersion: stall.sessionVersion });
   redirect("/vendor");
 }
 
@@ -82,9 +84,13 @@ export type PlaceOrderInput = {
   pickupSlot: string;
   paymentMethod: "PLUXEE" | "UPI" | "CARD";
   items: { menuItemId: string; qty: number }[];
+  // What the bag showed; a mismatch means catalogue prices changed since the items were added.
+  expectedTotalInr?: number;
 };
 
-type PlaceOrderResult = { ok: true; orderId: string } | { ok: false; error: string };
+type PlaceOrderResult =
+  | { ok: true; orderId: string }
+  | { ok: false; error: string; prices?: Record<string, number> };
 
 function parseOrderInput(raw: unknown): PlaceOrderInput | null {
   if (!isRecord(raw)) return null;
@@ -105,11 +111,14 @@ function parseOrderInput(raw: unknown): PlaceOrderInput | null {
     items.push({ menuItemId, qty });
   }
   if (new Set(items.map((line) => line.menuItemId)).size !== items.length) return null;
+  const expectedTotalInr = raw.expectedTotalInr === undefined ? undefined : toInt(raw.expectedTotalInr);
+  if (expectedTotalInr === null) return null;
   return {
     stallId,
     pickupSlot,
     paymentMethod: paymentMethod as PlaceOrderInput["paymentMethod"],
     items,
+    expectedTotalInr,
   };
 }
 
@@ -171,48 +180,71 @@ export async function placeOrder(rawInput: unknown): Promise<PlaceOrderResult> {
   }
 
   const totalInr = lines.reduce((sum, line) => sum + line.priceInr * line.qty, 0);
-  const token = await generateToken();
-  const paymentRef = `${input.paymentMethod}-MOCK-${token}`;
+  if (input.expectedTotalInr !== undefined && input.expectedTotalInr !== totalInr) {
+    return {
+      ok: false,
+      error: `Prices at ${stall.name} changed since you added these items. Check the new total and pay again.`,
+      prices: Object.fromEntries(lines.map((line) => [line.menuItemId, line.priceInr])),
+    };
+  }
 
-  const order = await prisma.order.create({
-    data: {
-      token,
-      employeeId: employee.employeeId,
-      employeeName: employee.name,
-      stallId: stall.id,
-      status: "PLACED",
-      pickupSlot: input.pickupSlot,
-      paymentMethod: input.paymentMethod,
-      paymentRef,
-      totalInr,
-      items: {
-        create: lines,
-      },
-    },
-  });
-
-  revalidatePath("/orders");
-  revalidatePath("/vendor");
-  return { ok: true, orderId: order.id };
+  const tokenDay = campusDate();
+  for (let attempt = 0; ; attempt += 1) {
+    const token = randomToken();
+    try {
+      const order = await prisma.order.create({
+        data: {
+          token,
+          tokenDay,
+          employeeId: employee.employeeId,
+          employeeName: employee.name,
+          stallId: stall.id,
+          status: "PLACED",
+          pickupSlot: input.pickupSlot,
+          paymentMethod: input.paymentMethod,
+          paymentRef: `${input.paymentMethod}-MOCK-${tokenDay.replaceAll("-", "")}-${token}`,
+          totalInr,
+          items: {
+            create: lines,
+          },
+        },
+        select: { id: true },
+      });
+      revalidatePath("/orders");
+      revalidatePath("/vendor");
+      return { ok: true, orderId: order.id };
+    } catch (error) {
+      // Another order at this stall took the same token today: draw again.
+      const clash = error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+      if (!clash || attempt >= 19) throw error;
+    }
+  }
 }
 
-export async function advanceVendorOrder(rawOrderId: unknown): Promise<ActionResult> {
+// The counter sends the status it was showing, so a second tablet (or a stale
+// screen) cannot push an order two steps, e.g. from Preparing straight to Collected.
+export async function advanceVendorOrder(rawOrderId: unknown, rawFrom: unknown): Promise<ActionResult> {
   const vendor = await getVendorSession();
   if (!vendor) return { ok: false, error: "Sign in at the stall counter first." };
   const orderId = cleanText(rawOrderId, 40);
-  if (!/^[a-z0-9]{10,40}$/i.test(orderId)) return { ok: false, error: "Order not found for this stall." };
-
-  const order = await prisma.order.findUnique({ where: { id: orderId } });
-  if (!order || order.stallId !== vendor.stallId) {
+  const from = cleanText(rawFrom, 12);
+  if (!/^[a-z0-9]{10,40}$/i.test(orderId) || !isOrderStatus(from)) {
     return { ok: false, error: "Order not found for this stall." };
   }
-  const next = nextStatus(order.status as OrderStatus);
+  const next = nextStatus(from);
   if (!next) return { ok: false, error: "This order is already collected." };
 
-  await prisma.order.update({
-    where: { id: orderId },
+  const moved = await prisma.order.updateMany({
+    where: { id: orderId, stallId: vendor.stallId, status: from },
     data: { status: next },
   });
+  if (moved.count === 0) {
+    const exists = await prisma.order.count({ where: { id: orderId, stallId: vendor.stallId } });
+    return {
+      ok: false,
+      error: exists ? "This order was updated on another screen. The queue has been refreshed." : "Order not found for this stall.",
+    };
+  }
   revalidatePath("/vendor");
   revalidatePath(`/orders/${orderId}`);
   return { ok: true };

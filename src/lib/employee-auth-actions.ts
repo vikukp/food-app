@@ -185,7 +185,11 @@ export async function loginWithPin(formData: FormData) {
     where: { id: employee.id, pinFailedCount: { lt: MAX_PIN_FAILURES } },
     data: { pinFailedCount: { increment: 1 } },
   });
-  if (claimed.count === 0) backToPinSignIn("locked");
+  if (claimed.count === 0) {
+    // Hash anyway so a locked account answers as slowly as any other attempt.
+    verifyPin(pin, employee.pinHash);
+    backToPinSignIn("locked");
+  }
   if (!verifyPin(pin, employee.pinHash)) {
     backToPinSignIn(employee.pinFailedCount + 1 >= MAX_PIN_FAILURES ? "locked" : "credentials");
   }

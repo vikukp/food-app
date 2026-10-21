@@ -1,5 +1,4 @@
 import { randomInt } from "node:crypto";
-import { prisma } from "@/lib/prisma";
 
 export const ORDER_STATUSES = [
   "PLACED",
@@ -36,13 +35,9 @@ export function statusLabel(status: string) {
   }
 }
 
-export async function generateToken() {
-  for (let i = 0; i < 20; i += 1) {
-    const token = `IWF-${randomInt(1000, 10000)}`;
-    const existing = await prisma.order.findUnique({ where: { token } });
-    if (!existing) return token;
-  }
-  throw new Error("Could not allocate a free order token. Try again.");
+// Unique per stall per campus day; the database enforces it and the caller retries on a clash.
+export function randomToken() {
+  return `IWF-${randomInt(1000, 10000)}`;
 }
 
 export function paymentLabel(method: string) {

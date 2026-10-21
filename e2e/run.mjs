@@ -16,6 +16,7 @@ if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 const results = [];
 const pageErrors = [];
 const lastCodeAt = new Map();
+const openPages = new Set();
 
 async function step(name, run) {
   const started = Date.now();
@@ -26,6 +27,11 @@ async function step(name, run) {
   } catch (error) {
     results.push(false);
     console.log(`FAIL  ${name} — ${String(error?.message ?? error).split("\n")[0].slice(0, 300)}`);
+    for (const page of openPages) {
+      if (page.isClosed()) continue;
+      console.log(`      [${page.label}] at ${page.url()}`);
+      await snap(page, `fail-${results.length}-${page.label}`).catch(() => {});
+    }
   }
 }
 
@@ -54,6 +60,9 @@ const browser = await chromium.launch(
 async function newPage(label, viewport = { width: 1280, height: 900 }) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
+  page.label = label;
+  openPages.add(page);
+  page.on("close", () => openPages.delete(page));
   page.on("pageerror", (error) => pageErrors.push(`[${label}] ${error.message.slice(0, 200)}`));
   page.on("console", (message) => {
     if (message.type() === "error") pageErrors.push(`[${label}] ${message.text().slice(0, 200)}`);
@@ -233,9 +242,13 @@ await step("registration signs you in", async () => {
 
 await step("orders page shows the account and a Change PIN link", async () => {
   await emp.goto(`${BASE}/orders`);
+  // Wait for the streamed page to be revealed: until then it sits in a hidden
+  // container whose text innerText still reads but role queries skip.
+  const changePin = emp.getByRole("link", { name: "Change PIN" });
+  await changePin.waitFor({ timeout: 5000 }).catch(() => {});
   const main = await emp.locator("main").innerText();
   check(main.includes(user.employeeId) && main.includes(masked(user.phone)), "account line missing");
-  check((await emp.getByRole("link", { name: "Change PIN" }).count()) === 1, "Change PIN link missing");
+  check((await changePin.count()) === 1, "Change PIN link missing");
 });
 
 await step("sign out, then sign in with mobile number and PIN", async () => {
@@ -384,25 +397,73 @@ await step("order from a stall and get a QR token", async () => {
   return token;
 });
 
-await step("vendor queue sees the order and the ticket updates live", async () => {
-  const vendor = await newPage("vendor");
+async function vendorSignIn(label, stallId = "momos", vendorPin = VENDOR_PIN) {
+  const vendor = await newPage(label);
   await vendor.goto(`${BASE}/vendor/login`);
-  await vendor.selectOption("select[name='stallId']", "momos");
-  await vendor.fill("input[name='pin']", VENDOR_PIN);
+  await vendor.selectOption("select[name='stallId']", stallId);
+  await vendor.fill("input[name='pin']", vendorPin);
   await vendor.getByRole("button", { name: "Open kitchen queue" }).click();
   await vendor.waitForURL(`${BASE}/vendor`);
+  return vendor;
+}
+
+await step("vendor queue sees the order and the ticket updates live", async () => {
+  const vendor = await vendorSignIn("vendor");
   const card = vendor.locator("main li", { hasText: token });
   await card.waitFor({ timeout: 8000 });
   check((await card.innerText()).includes(user.name), "order card does not show the registered name");
   await card.getByRole("button", { name: "Start preparing" }).click();
+  await card.getByRole("button", { name: "Mark ready" }).waitFor();
+
+  // A second counter tablet whose queue stopped refreshing still shows "Mark ready".
+  const stale = await vendorSignIn("vendor-stale");
+  const staleCard = stale.locator("main li", { hasText: token });
+  await staleCard.getByRole("button", { name: "Mark ready" }).waitFor({ timeout: 8000 });
+  // Leave its refreshes hanging (an abort would log console errors).
+  await stale.route("**/api/vendor/orders", () => {});
+
   await card.getByRole("button", { name: "Mark ready" }).click();
   await emp.waitForFunction(
     () => document.querySelector("main")?.innerText.includes("Ready for pickup"),
     null,
     { timeout: 12_000 },
   );
+
+  await staleCard.getByRole("button", { name: "Mark ready" }).click();
+  await stale.getByText("updated on another screen").waitFor({ timeout: 5000 });
+  await sleep(3500);
+  check(
+    (await emp.locator("main").innerText()).includes("Ready for pickup"),
+    "a stale tablet moved the order past Ready",
+  );
+  await stale.context().close();
   await vendor.context().close();
-  return `${token} for ${user.name} flipped to "Ready for pickup"`;
+  return `${token} for ${user.name} flipped to "Ready for pickup"; stale tablet refused`;
+});
+
+await step("changing the counter PIN signs out other tablets", async () => {
+  const owner = await vendorSignIn("vendor-owner");
+  const other = await vendorSignIn("vendor-other");
+  const changePin = async (from, to) => {
+    await owner.goto(`${BASE}/vendor/menu`);
+    await owner.fill("#currentPin", from);
+    await owner.fill("#newPin", to);
+    await owner.fill("#confirmPin", to);
+    await owner.getByRole("button", { name: "Change PIN" }).click();
+    await owner.waitForURL(/[?&]ok=pin/);
+  };
+  const tempPin = "583016";
+  await changePin(VENDOR_PIN, tempPin);
+  try {
+    await other.goto(`${BASE}/vendor`);
+    await other.waitForURL(`${BASE}/vendor/login`);
+    await owner.goto(`${BASE}/vendor`);
+    check(owner.url() === `${BASE}/vendor`, "the tablet that changed the PIN was signed out");
+  } finally {
+    await changePin(tempPin, VENDOR_PIN);
+  }
+  await other.context().close();
+  await owner.context().close();
 });
 
 await step("a tampered session cookie is refused", async () => {

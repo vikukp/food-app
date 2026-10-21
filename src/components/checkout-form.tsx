@@ -12,7 +12,6 @@ import { Label } from "@/components/ui/label";
 import { placeOrder } from "@/lib/actions";
 import { hoursLabel } from "@/lib/hours";
 import { formatInr } from "@/lib/money";
-import { CART_STORAGE_KEY, EMPTY_CART } from "@/lib/cart";
 import type { PickupSlot } from "@/lib/pickup-slots";
 
 const PLUXEE_BALANCE = 2400;
@@ -26,7 +25,7 @@ export type CheckoutStall = {
 
 export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall> }) {
   const router = useRouter();
-  const { cart, total, setQty, clear, hydrated } = useCart();
+  const { cart, total, setQty, setPrices, clear, hydrated } = useCart();
   const [chosenSlot, setChosenSlot] = useState("");
   const [method, setMethod] = useState<"PLUXEE" | "UPI" | "CARD">("PLUXEE");
   const [upiId, setUpiId] = useState("priya.nair@okaxis");
@@ -89,22 +88,28 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
     }
     setSubmitting(true);
     toast.loading("Charging mock payment…", { id: "pay" });
-    await new Promise((resolve) => setTimeout(resolve, 1100));
-    const result = await placeOrder({
-      stallId: cart.stallId!,
-      pickupSlot,
-      paymentMethod: method,
-      items: cart.items.map((item) => ({ menuItemId: item.menuItemId, qty: item.qty })),
-    });
-    if (!result.ok) {
-      toast.error(result.error, { id: "pay" });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      const result = await placeOrder({
+        stallId: cart.stallId!,
+        pickupSlot,
+        paymentMethod: method,
+        items: cart.items.map((item) => ({ menuItemId: item.menuItemId, qty: item.qty })),
+        expectedTotalInr: total,
+      });
+      if (!result.ok) {
+        if (result.prices) setPrices(result.prices);
+        toast.error(result.error, { id: "pay" });
+        setSubmitting(false);
+        return;
+      }
+      toast.success("Paid. Token is ready.", { id: "pay" });
+      clear();
+      router.push(`/orders/${result.orderId}`);
+    } catch {
+      toast.error("Could not reach the food court. Check My orders before you try again.", { id: "pay" });
       setSubmitting(false);
-      return;
     }
-    toast.success("Paid. Token is ready.", { id: "pay" });
-    clear();
-    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(EMPTY_CART));
-    router.push(`/orders/${result.orderId}`);
   }
 
   return (
@@ -204,13 +209,17 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
                   {item.qty}× {item.name}
                 </span>
               </span>
-              <button
-                type="button"
-                className="text-xs text-muted-foreground underline"
-                onClick={() => setQty(item.menuItemId, 0)}
-              >
-                {formatInr(item.priceInr * item.qty)}
-              </button>
+              <span className="flex shrink-0 items-center gap-2 text-xs">
+                <span>{formatInr(item.priceInr * item.qty)}</span>
+                <button
+                  type="button"
+                  className="text-muted-foreground underline"
+                  aria-label={`Remove ${item.name}`}
+                  onClick={() => setQty(item.menuItemId, 0)}
+                >
+                  Remove
+                </button>
+              </span>
             </li>
           ))}
         </ul>

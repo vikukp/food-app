@@ -75,7 +75,7 @@ Signed-in stall staff get a **Menu** link in the header (`/vendor/menu`) where t
 - edit price and details;
 - set an offer price and label (employees see the offer price, the struck-through regular price and a `Lunch combo · −18%` style tag; orders are charged at the offer price, computed on the server);
 - mark an item **sold out** (stays visible, no Add button) or **hide** it from the menu entirely (past orders keep their line items);
-- change the stall's counter PIN.
+- change the stall's counter PIN (this signs out every other tablet signed in to the stall).
 
 Reseeding never overwrites vendor edits; it only adds stalls or items that are missing.
 
@@ -90,6 +90,7 @@ Stall hours are campus time (IST). Most stalls serve lunch through the evening, 
 - One-time codes are stored only as an HMAC, are single use, and are limited per number, per network and per day. Only Indian mobile numbers are accepted, which keeps the SMS bill away from international premium-rate numbers.
 - Employee PINs are scrypt hashes. PIN sign-in gives the same answer and the same lockout for unknown numbers as for real ones, so it cannot be used to find out who is registered.
 - The signing key is `SESSION_SECRET`. `npm run dev|build|start` generate a random one into `.env.local` if none is set; set it explicitly in production and rotate it to log everyone out.
+- Vendor sessions carry the stall's session version, so changing the counter PIN signs out every other tablet.
 - Vendor PINs are stored as scrypt hashes and compared in constant time. Five wrong PINs lock a stall's login for 15 minutes; sign-in and order placement are also rate-limited per client.
 - QR payloads carry an HMAC so a counter scanner can reject fabricated codes (`src/lib/qr.ts`).
 - Every response carries a nonce-based Content-Security-Policy, `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, and HSTS behind TLS. `X-Powered-By` is off.
@@ -105,7 +106,7 @@ With the app running in demo SMS mode (`npm run build && npm start`), run the br
 npm run test:e2e
 ```
 
-It uses your installed Google Chrome (set `CHROME_PATH` for another Chromium binary, `BASE_URL` for another server, `SCREENSHOT_DIR` to keep screenshots). It covers registration, code and PIN sign-in, lockout and unlock, resend cooldown and forgot PIN, then places an order and takes it through the vendor queue. Each run registers new random numbers and never touches the demo employee. The suite takes about 75 seconds because it waits out the 30-second resend cooldown. Running it more than once in 15 minutes from one machine trips the PIN sign-in rate limit; restart the server to reset it.
+It uses your installed Google Chrome (set `CHROME_PATH` for another Chromium binary, `BASE_URL` for another server, `SCREENSHOT_DIR` to keep screenshots). It covers registration, code and PIN sign-in, lockout and unlock, resend cooldown and forgot PIN, then places an order and takes it through the vendor queue, checks that a stale second counter tablet cannot skip an order past Ready, and that changing the counter PIN signs out other tablets. Each run registers new random numbers and never touches the demo employee. The suite takes about 75 seconds because it waits out the 30-second resend cooldown. Running it more than once in 15 minutes from one machine trips the PIN sign-in rate limit; restart the server to reset it.
 
 ## Stack
 

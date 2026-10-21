@@ -10,6 +10,18 @@ const campusClock = new Intl.DateTimeFormat("en-GB", {
   hourCycle: "h23",
 });
 
+const campusDay = new Intl.DateTimeFormat("en-CA", {
+  timeZone: CAMPUS_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+// YYYY-MM-DD in campus time.
+export function campusDate(date = new Date()) {
+  return campusDay.format(date);
+}
+
 export function campusMinutesNow(date = new Date()) {
   const parts = campusClock.formatToParts(date);
   const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0) % 24;

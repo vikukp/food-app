@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { hashPin, verifyPin } from "@/lib/pin";
 import { prisma } from "@/lib/prisma";
 import { consume } from "@/lib/rate-limit";
-import { getVendorSession } from "@/lib/session";
+import { getVendorSession, setVendorSession } from "@/lib/session";
 import { ITEM_ID_PATTERN, PIN_PATTERN, cleanText, toInt } from "@/lib/validation";
 
 const MENU_PATH = "/vendor/menu";
@@ -87,7 +87,8 @@ function slugify(value: string) {
 export async function createMenuItem(formData: FormData) {
   const vendor = await requireVendor();
   const fields = readItemFields(formData);
-  const count = await prisma.menuItem.count({ where: { stallId: vendor.stallId } });
+  // Hidden items do not count, so hiding a few frees room as the "full" message says.
+  const count = await prisma.menuItem.count({ where: { stallId: vendor.stallId, archived: false } });
   if (count >= MAX_ITEMS_PER_STALL) fail("full");
 
   const id = `${vendor.stallId}-${slugify(fields.name) || "item"}-${randomBytes(2).toString("hex")}`;
@@ -117,6 +118,10 @@ export async function setItemArchived(formData: FormData) {
   const vendor = await requireVendor();
   const item = await ownedItem(vendor.stallId, formData.get("itemId"));
   const archived = formData.get("archived") === "1";
+  if (!archived && item.archived) {
+    const count = await prisma.menuItem.count({ where: { stallId: vendor.stallId, archived: false } });
+    if (count >= MAX_ITEMS_PER_STALL) fail("full");
+  }
   await prisma.menuItem.update({ where: { id: item.id }, data: { archived } });
   done(archived ? "hidden" : "restored");
 }
@@ -133,9 +138,12 @@ export async function changeVendorPin(formData: FormData) {
     select: { vendorPinHash: true },
   });
   if (!stall || !verifyPin(current, stall.vendorPinHash)) fail("pin");
-  await prisma.stall.update({
+  // A new session version signs out every other counter tablet; this one stays signed in.
+  const updated = await prisma.stall.update({
     where: { id: vendor.stallId },
-    data: { vendorPinHash: hashPin(next) },
+    data: { vendorPinHash: hashPin(next), sessionVersion: { increment: 1 } },
+    select: { sessionVersion: true },
   });
+  await setVendorSession({ stallId: vendor.stallId, sessionVersion: updated.sessionVersion });
   done("pin");
 }
