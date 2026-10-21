@@ -466,6 +466,41 @@ await step("changing the counter PIN signs out other tablets", async () => {
   await owner.context().close();
 });
 
+async function placeMomosOrder(page) {
+  await page.goto(`${BASE}/stalls/momos`, { waitUntil: "networkidle" });
+  await page.locator("main button:has-text('Add')").first().click();
+  await page.goto(`${BASE}/checkout`);
+  await page.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
+  await page.locator("main button:has-text('Pay ₹')").click();
+  await page.waitForURL(/\/orders\/[^/]+$/);
+  return (await page.locator("main").innerText()).match(/IWF-\d{4}/)?.[0] ?? "";
+}
+
+await step("an employee can cancel before the kitchen starts", async () => {
+  const cancelToken = await placeMomosOrder(emp);
+  emp.once("dialog", (dialog) => dialog.accept());
+  await emp.getByRole("button", { name: "Cancel order" }).click();
+  await emp.getByText("You cancelled this order.").waitFor({ timeout: 8000 });
+  check((await emp.locator("main img[alt*='QR']").count()) === 0, "QR still shown on a cancelled ticket");
+  await emp.reload();
+  await emp.getByText("You cancelled this order.").waitFor({ timeout: 8000 });
+  return `${cancelToken} cancelled`;
+});
+
+await step("the stall can cancel with a reason and the ticket says why", async () => {
+  const cancelToken = await placeMomosOrder(emp);
+  const vendor = await vendorSignIn("vendor-cancel");
+  const card = vendor.locator("main li", { hasText: cancelToken });
+  await card.getByRole("button", { name: "Cancel" }).click();
+  await card.getByRole("button", { name: "An item ran out" }).click();
+  await vendor.getByText(`${cancelToken} cancelled`).waitFor({ timeout: 5000 });
+  await emp.getByText("The stall cancelled this order: an item ran out.").waitFor({ timeout: 12_000 });
+  await vendor.getByRole("button", { name: "done" }).click();
+  check((await vendor.locator("main li", { hasText: cancelToken }).innerText()).includes("An item ran out"), "reason missing on the done tab");
+  await vendor.context().close();
+  return `${cancelToken} cancelled by the stall`;
+});
+
 await step("a tampered session cookie is refused", async () => {
   const real = (await emp.context().cookies()).find((c) => c.name === "iwf_employee");
   const [body, signature] = real.value.split(".");

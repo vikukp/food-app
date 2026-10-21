@@ -5,6 +5,7 @@ export const ORDER_STATUSES = [
   "PREPARING",
   "READY",
   "COLLECTED",
+  "CANCELLED",
 ] as const;
 
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
@@ -12,6 +13,28 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 export function isOrderStatus(value: string): value is OrderStatus {
   return ORDER_STATUSES.includes(value as OrderStatus);
 }
+
+// Still with the kitchen or on the counter, as opposed to finished.
+export const OPEN_STATUSES = ["PLACED", "PREPARING", "READY"] as const;
+
+export function isOpenStatus(status: string) {
+  return (OPEN_STATUSES as readonly string[]).includes(status);
+}
+
+// The employee can cancel until the kitchen starts; the stall can until the food is ready.
+export function employeeCanCancel(status: string) {
+  return status === "PLACED";
+}
+
+export function stallCanCancel(status: string) {
+  return status === "PLACED" || status === "PREPARING";
+}
+
+export const STALL_CANCEL_REASONS = [
+  "An item ran out",
+  "Kitchen is closing",
+  "Too busy to make it in time",
+] as const;
 
 export function nextStatus(status: OrderStatus): OrderStatus | null {
   if (status === "PLACED") return "PREPARING";
@@ -30,6 +53,8 @@ export function statusLabel(status: string) {
       return "Ready for pickup";
     case "COLLECTED":
       return "Collected";
+    case "CANCELLED":
+      return "Cancelled";
     default:
       return status;
   }

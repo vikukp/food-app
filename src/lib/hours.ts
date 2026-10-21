@@ -44,6 +44,11 @@ export function isAllDay(openTime: string, closeTime: string) {
   return openTime === ALL_DAY_OPEN && closeTime === ALL_DAY_CLOSE;
 }
 
+// Late-night counters close after midnight, e.g. 18:00–02:00.
+export function crossesMidnight(openTime: string, closeTime: string) {
+  return !isAllDay(openTime, closeTime) && parseHm(closeTime) <= parseHm(openTime);
+}
+
 export function hoursLabel(openTime: string, closeTime: string) {
   return isAllDay(openTime, closeTime) ? "Open 24 hours" : `${openTime}–${closeTime}`;
 }
@@ -55,7 +60,10 @@ export function isStallOpen(
 ) {
   if (isAllDay(openTime, closeTime)) return true;
   const now = campusMinutesNow(date);
-  return now >= parseHm(openTime) && now < parseHm(closeTime);
+  const open = parseHm(openTime);
+  const close = parseHm(closeTime);
+  if (crossesMidnight(openTime, closeTime)) return now >= open || now < close;
+  return now >= open && now < close;
 }
 
 export function opensLaterToday(openTime: string, date = new Date()) {

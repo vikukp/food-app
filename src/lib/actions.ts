@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { campusDate } from "@/lib/hours";
-import { isOrderStatus, nextStatus, randomToken } from "@/lib/orders";
+import { STALL_CANCEL_REASONS, isOrderStatus, nextStatus, randomToken, stallCanCancel } from "@/lib/orders";
 import { effectivePrice } from "@/lib/pricing";
 import { verifyPin } from "@/lib/pin";
 import { isValidPickupSlot } from "@/lib/pickup-slots";
@@ -33,6 +33,7 @@ import {
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
 const MINUTE = 60_000;
+const ORDER_ID_PATTERN = /^[a-z0-9]{10,40}$/i;
 
 export async function logoutEmployee() {
   await clearEmployeeSession();
@@ -228,7 +229,7 @@ export async function advanceVendorOrder(rawOrderId: unknown, rawFrom: unknown):
   if (!vendor) return { ok: false, error: "Sign in at the stall counter first." };
   const orderId = cleanText(rawOrderId, 40);
   const from = cleanText(rawFrom, 12);
-  if (!/^[a-z0-9]{10,40}$/i.test(orderId) || !isOrderStatus(from)) {
+  if (!ORDER_ID_PATTERN.test(orderId) || !isOrderStatus(from)) {
     return { ok: false, error: "Order not found for this stall." };
   }
   const next = nextStatus(from);
@@ -239,6 +240,65 @@ export async function advanceVendorOrder(rawOrderId: unknown, rawFrom: unknown):
     data: { status: next },
   });
   if (moved.count === 0) {
+    const exists = await prisma.order.count({ where: { id: orderId, stallId: vendor.stallId } });
+    return {
+      ok: false,
+      error: exists ? "This order was updated on another screen. The queue has been refreshed." : "Order not found for this stall.",
+    };
+  }
+  revalidatePath("/vendor");
+  revalidatePath(`/orders/${orderId}`);
+  return { ok: true };
+}
+
+// Employees can cancel until the kitchen starts on it; the mock payment is refunded.
+export async function cancelOwnOrder(rawOrderId: unknown): Promise<ActionResult> {
+  const employee = await getEmployeeSession();
+  if (!employee) return { ok: false, error: "Your sign-in has ended. Sign in again." };
+  const orderId = cleanText(rawOrderId, 40);
+  if (!ORDER_ID_PATTERN.test(orderId)) return { ok: false, error: "Order not found." };
+
+  const cancelled = await prisma.order.updateMany({
+    where: { id: orderId, employeeId: employee.employeeId, status: "PLACED" },
+    data: { status: "CANCELLED", cancelledBy: "employee", cancelReason: null },
+  });
+  if (cancelled.count === 0) {
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, employeeId: employee.employeeId },
+      select: { status: true },
+    });
+    if (!order) return { ok: false, error: "Order not found." };
+    return { ok: false, error: "The stall has already started on this order, so it can no longer be cancelled." };
+  }
+  revalidatePath("/orders");
+  revalidatePath(`/orders/${orderId}`);
+  revalidatePath("/vendor");
+  return { ok: true };
+}
+
+// The stall can turn an order down until it is ready, with one of a few stock reasons.
+export async function cancelVendorOrder(
+  rawOrderId: unknown,
+  rawFrom: unknown,
+  rawReason: unknown,
+): Promise<ActionResult> {
+  const vendor = await getVendorSession();
+  if (!vendor) return { ok: false, error: "Sign in at the stall counter first." };
+  const orderId = cleanText(rawOrderId, 40);
+  const from = cleanText(rawFrom, 12);
+  const reason = cleanText(rawReason, 80);
+  if (!ORDER_ID_PATTERN.test(orderId) || !stallCanCancel(from)) {
+    return { ok: false, error: "This order can no longer be cancelled." };
+  }
+  if (!(STALL_CANCEL_REASONS as readonly string[]).includes(reason)) {
+    return { ok: false, error: "Pick a reason to tell the employee." };
+  }
+
+  const cancelled = await prisma.order.updateMany({
+    where: { id: orderId, stallId: vendor.stallId, status: from },
+    data: { status: "CANCELLED", cancelledBy: "stall", cancelReason: reason },
+  });
+  if (cancelled.count === 0) {
     const exists = await prisma.order.count({ where: { id: orderId, stallId: vendor.stallId } });
     return {
       ok: false,
