@@ -3,6 +3,7 @@
 import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { DIETS, parseAllergens } from "@/lib/dietary";
 import { hashPin, verifyPin } from "@/lib/pin";
 import { prisma } from "@/lib/prisma";
 import { consume } from "@/lib/rate-limit";
@@ -43,6 +44,10 @@ type ItemFields = {
   category: string;
   priceInr: number;
   veg: boolean;
+  egg: boolean;
+  jain: boolean;
+  allergens: string;
+  kcal: number | null;
   offerPriceInr: number | null;
   offerLabel: string | null;
 };
@@ -52,11 +57,21 @@ function readItemFields(formData: FormData): ItemFields {
   const description = cleanText(formData.get("description"), 160);
   const category = cleanText(formData.get("category"), 30);
   const priceInr = toInt(formData.get("priceInr"));
-  const veg = formData.get("veg") === "on";
+  const diet = cleanText(formData.get("diet"), 8);
+  const veg = diet === "veg";
+  const egg = diet === "egg";
+  const jain = veg && formData.get("jain") === "on";
+  const allergens = parseAllergens(formData.getAll("allergen").map((v) => cleanText(v, 12)).join(","))
+    .sort()
+    .join(",");
+  const kcalRaw = cleanText(formData.get("kcal"), 5);
+  const kcal = kcalRaw ? toInt(kcalRaw) : null;
   const offerRaw = cleanText(formData.get("offerPriceInr"), 6);
   const offerLabel = cleanText(formData.get("offerLabel"), 40) || null;
 
   if (name.length < 2 || category.length < 2) fail("invalid");
+  if (!(DIETS as readonly string[]).includes(diet)) fail("diet");
+  if (kcalRaw && (kcal === null || kcal < 1 || kcal > 3000)) fail("kcal");
   if (priceInr === null || priceInr < 1 || priceInr > MAX_PRICE_INR) fail("price");
 
   let offerPriceInr: number | null = null;
@@ -71,6 +86,10 @@ function readItemFields(formData: FormData): ItemFields {
     category,
     priceInr,
     veg,
+    egg,
+    jain,
+    allergens,
+    kcal,
     offerPriceInr,
     offerLabel: offerPriceInr ? offerLabel : null,
   };

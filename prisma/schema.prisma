@@ -43,6 +43,13 @@ model MenuItem {
   offerPriceInr Int?
   offerLabel  String?
   veg         Boolean
+  // Non-veg only because of egg (no meat or fish); shown as "Egg".
+  egg         Boolean     @default(false)
+  // No onion, garlic or root vegetables. Only meaningful for veg items.
+  jain        Boolean     @default(false)
+  // Comma-separated ids from src/lib/dietary.ts; empty means "not listed".
+  allergens   String      @default("")
+  kcal        Int?
   category    String
   available   Boolean     @default(true)
   archived    Boolean     @default(false)

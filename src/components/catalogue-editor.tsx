@@ -7,6 +7,7 @@ import {
   setItemAvailability,
   updateMenuItem,
 } from "@/lib/catalogue-actions";
+import { ALLERGENS, dietOf, parseAllergens } from "@/lib/dietary";
 import { formatInr } from "@/lib/money";
 import { hasOffer, offerPercent } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,10 @@ export type CatalogueItem = {
   offerPriceInr: number | null;
   offerLabel: string | null;
   veg: boolean;
+  egg: boolean;
+  jain: boolean;
+  allergens: string;
+  kcal: number | null;
   available: boolean;
   archived: boolean;
 };
@@ -29,6 +34,7 @@ const field =
 const label = "text-xs font-medium text-muted-foreground";
 
 function ItemFields({ item, categories }: { item?: CatalogueItem; categories: string[] }) {
+  const prefix = item?.id ?? "new";
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <div className="space-y-1 sm:col-span-2">
@@ -120,10 +126,51 @@ function ItemFields({ item, categories }: { item?: CatalogueItem; categories: st
           className={field}
         />
       </div>
+      <div className="space-y-1">
+        <label className={label} htmlFor={`${prefix}-diet`}>
+          Food type
+        </label>
+        <select id={`${prefix}-diet`} name="diet" defaultValue={item ? dietOf(item) : "veg"} className={field}>
+          <option value="veg">Vegetarian</option>
+          <option value="egg">Contains egg (no meat)</option>
+          <option value="nonveg">Non-vegetarian</option>
+        </select>
+      </div>
+      <div className="space-y-1">
+        <label className={label} htmlFor={`${prefix}-kcal`}>
+          Calories (kcal per serving, optional)
+        </label>
+        <input
+          id={`${prefix}-kcal`}
+          name="kcal"
+          type="number"
+          min={1}
+          max={3000}
+          defaultValue={item?.kcal ?? ""}
+          className={field}
+        />
+      </div>
       <label className="flex items-center gap-2 text-sm sm:col-span-2">
-        <input type="checkbox" name="veg" defaultChecked={item ? item.veg : true} className="size-4 accent-emerald-700" />
-        Vegetarian
+        <input type="checkbox" name="jain" defaultChecked={item?.jain ?? false} className="size-4 accent-emerald-700" />
+        Jain (no onion, garlic or root vegetables; vegetarian items only)
       </label>
+      <fieldset className="sm:col-span-2">
+        <legend className={label}>Contains (allergens)</legend>
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+          {ALLERGENS.map((allergen) => (
+            <label key={allergen.id} className="flex items-center gap-1.5 text-sm">
+              <input
+                type="checkbox"
+                name="allergen"
+                value={allergen.id}
+                defaultChecked={item ? parseAllergens(item.allergens).includes(allergen.id) : false}
+                className="size-4 accent-emerald-700"
+              />
+              {allergen.label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
       {categories.length ? (
         <datalist id="catalogue-categories">
           {categories.map((c) => (
@@ -186,7 +233,7 @@ function ItemCard({ item, categories }: { item: CatalogueItem; categories: strin
       </div>
 
       <details className="mt-3 rounded-lg border border-dashed">
-        <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Edit price, details, or offer</summary>
+        <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Edit price, details, dietary info or offer</summary>
         <form action={updateMenuItem} className="space-y-3 border-t p-3">
           <input type="hidden" name="itemId" value={item.id} />
           <ItemFields item={item} categories={categories} />
