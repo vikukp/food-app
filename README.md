@@ -77,7 +77,7 @@ With `DEMO_MODE=1`:
 ## Counter screen
 
 - **Today** shows orders, takings and cancellations for the campus day, and the top items. Tabs show how many orders each holds; orders past their pickup time are marked **Late**, and food left ready for 15 minutes gets a "call it out" nudge. Buttons rest for a moment after a tap, so a double tap cannot skip a step.
-- **Counter display** (`/display/<stall>`, linked from the counter): a full-screen board for a TV facing the queue, showing which tokens are being prepared and which are ready. Tokens only, no names.
+- **Counter display** (`/display/<stall>`, linked from the counter): a full-screen board for a TV facing the queue, showing which tokens are being prepared and which are ready. Tokens only, no names. Because anyone can read a token off the board, hand food over against the ticket's QR (Scan QR) or the name on the counter card, not the token alone. Orders left open for over 12 hours stop counting towards the wait and drop off the board.
 - **Menu** settings: items (with food type, Jain, allergens, calories), hours, orders per slot and prep time, pause, GSTIN, counter PIN, and the stall's recent feedback.
 - **Find token** filters every tab by the digits typed; **Find** looks up today's order with that token even if it has dropped off the list. A QR scan checks the ticket's signature and refuses tickets for other stalls.
 - The queue refreshes every 3 seconds and costs almost nothing when nothing has changed (the server answers 304).

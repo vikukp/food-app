@@ -63,6 +63,7 @@ export function orderTimeline(order: Stamps): TimelineStep[] {
   const steps: TimelineStep[] = [{ label: "Placed", at: at(order.createdAt) }];
   if (order.status === "CANCELLED") {
     if (order.preparingAt) steps.push({ label: "Preparing", at: at(order.preparingAt) });
+    if (order.readyAt) steps.push({ label: "Ready", at: at(order.readyAt) });
     steps.push({ label: "Cancelled", at: at(order.cancelledAt) ?? "" });
     return steps;
   }

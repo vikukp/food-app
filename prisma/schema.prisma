@@ -69,6 +69,8 @@ model Order {
   stall         Stall       @relation(fields: [stallId], references: [id])
   status        String
   pickupSlot    String
+  // When that slot actually is (pickupSlot is only "HH:MM"); capacity counts by it.
+  pickupAt      DateTime?
   paymentMethod String
   paymentRef    String
   totalInr      Int
@@ -92,6 +94,7 @@ model Order {
 
   @@unique([stallId, tokenDay, token])
   @@index([stallId, ratedAt])
+  @@index([stallId, pickupAt])
   @@index([employeeId])
   @@index([stallId, status])
   @@index([stallId, updatedAt])

@@ -76,6 +76,13 @@ export function MenuList({
           ))}
         </div>
       ) : null}
+      {filter === "noegg" ? (
+        <p className="-mt-5 text-xs text-muted-foreground">
+          Hides dishes the stall has marked as containing egg. Ask the counter if you are unsure about an item.
+        </p>
+      ) : filter === "jain" ? (
+        <p className="-mt-5 text-xs text-muted-foreground">Shows dishes the stall has marked as Jain.</p>
+      ) : null}
       {categories.map((category) => (
         <section key={category}>
           <h2 className="mb-3 text-sm font-semibold tracking-wide text-muted-foreground uppercase">

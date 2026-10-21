@@ -38,6 +38,9 @@ export const STALL_CANCEL_REASONS = [
 ] as const;
 
 export const NO_SHOW_REASON = "Not collected";
+// A ready order can be closed as a no-show only after it has waited this long,
+// so a tap right after "Mark ready" cannot cancel food someone is walking to.
+export const NO_SHOW_AFTER_MS = 10 * 60_000;
 
 export function cancelReasonsFor(status: string): readonly string[] {
   if (status === "READY") return [NO_SHOW_REASON];

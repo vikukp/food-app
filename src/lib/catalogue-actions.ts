@@ -23,8 +23,13 @@ function done(code: string, anchor?: string): never {
 }
 
 // "momos" and "Momos" are one section: reuse the spelling the menu already has.
-async function canonicalCategory(stallId: string, category: string) {
-  const existing = await prisma.menuItem.findMany({ where: { stallId }, select: { category: true }, distinct: ["category"] });
+// The item being edited is left out, so a vendor can still change a category's case.
+async function canonicalCategory(stallId: string, category: string, exceptItemId?: string) {
+  const existing = await prisma.menuItem.findMany({
+    where: { stallId, ...(exceptItemId ? { id: { not: exceptItemId } } : {}) },
+    select: { category: true },
+    distinct: ["category"],
+  });
   return existing.find((row) => row.category.toLowerCase() === category.toLowerCase())?.category ?? category;
 }
 
@@ -115,6 +120,7 @@ function slugify(value: string) {
 export async function createMenuItem(formData: FormData) {
   const vendor = await requireVendor();
   const fields = readItemFields(formData);
+  fields.category = await canonicalCategory(vendor.stallId, fields.category);
   // Hidden items do not count, so hiding a few frees room as the "full" message says.
   const count = await prisma.menuItem.count({ where: { stallId: vendor.stallId, archived: false } });
   if (count >= MAX_ITEMS_PER_STALL) fail("full");
@@ -130,7 +136,7 @@ export async function updateMenuItem(formData: FormData) {
   const vendor = await requireVendor();
   const item = await ownedItem(vendor.stallId, formData.get("itemId"));
   const fields = readItemFields(formData);
-  fields.category = await canonicalCategory(vendor.stallId, fields.category);
+  fields.category = await canonicalCategory(vendor.stallId, fields.category, item.id);
   await prisma.menuItem.update({ where: { id: item.id }, data: fields });
   done("saved", `item-${item.id}`);
 }

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { advanceVendorOrder, cancelVendorOrder, lookupVendorOrder, type ActionResult } from "@/lib/actions";
 import { formatInr } from "@/lib/money";
 import { campusMinutesNow, parseHm } from "@/lib/hours";
-import { cancelReasonsFor, nextStatus, statusLabel, type OrderStatus } from "@/lib/orders";
+import { NO_SHOW_AFTER_MS, cancelReasonsFor, nextStatus, statusLabel, type OrderStatus } from "@/lib/orders";
 import type { VendorDaySummary, VendorOrder, VendorQueueSnapshot } from "@/lib/vendor-orders";
 
 const TABS = ["active", "ready", "done"] as const;
@@ -235,7 +235,10 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
                 ? minutesLate(order.pickupSlot, now)
                 : 0;
             const resting = pending || cooling.has(order.id);
-            const reasons = cancelReasonsFor(order.status);
+            const noShowTooSoon =
+              order.status === "READY" &&
+              (now === null || !order.readyAt || now - Date.parse(order.readyAt) < NO_SHOW_AFTER_MS);
+            const reasons = noShowTooSoon ? [] : cancelReasonsFor(order.status);
             return (
               <li key={order.id} className="rounded-xl border bg-card p-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">

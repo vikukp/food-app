@@ -108,6 +108,16 @@ describe("pickup slots", () => {
     assert.deepEqual(getPickupSlots("18:00", "02:00", ist("03:00")).length > 0, true);
   });
 
+  it("know which day a slot falls on", () => {
+    const slots = getPickupSlots("00:00", "23:59", ist("23:50"));
+    const half = slots.find((s) => s.value === "00:30")!;
+    assert.equal(new Date(half.at).toISOString(), ist("00:30", "2026-10-22").toISOString());
+    const late = getPickupSlots("18:00", "02:00", ist("01:10", "2026-10-22")).find((s) => s.value === "01:30")!;
+    assert.equal(new Date(late.at).toISOString(), ist("01:30", "2026-10-22").toISOString());
+    const lunch = getPickupSlots("11:30", "15:00", ist("12:07")).find((s) => s.value === "12:30")!;
+    assert.equal(new Date(lunch.at).toISOString(), ist("12:30").toISOString());
+  });
+
   it("validate only offered slots", () => {
     const now = ist("12:07");
     assert.equal(isValidPickupSlot("12:30", "08:00", "22:00", now), true);
