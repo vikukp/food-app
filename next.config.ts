@@ -24,7 +24,9 @@ const nextConfig: NextConfig = {
     return [
       { source: "/:path*", headers: securityHeaders },
       {
-        source: "/api/:path*",
+        // The kitchen queue sets its own "private, no-cache" so its poll can
+        // revalidate with an ETag; every other API answer is never stored.
+        source: "/api/:path((?!vendor/orders$).*)",
         headers: [{ key: "Cache-Control", value: "no-store" }],
       },
     ];

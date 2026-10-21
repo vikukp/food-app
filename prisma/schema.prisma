@@ -62,6 +62,7 @@ model Order {
   @@unique([stallId, tokenDay, token])
   @@index([employeeId])
   @@index([stallId, status])
+  @@index([stallId, updatedAt])
 }
 
 model OrderItem {
