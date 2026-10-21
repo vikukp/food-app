@@ -54,7 +54,21 @@ With `DEMO_MODE=1`:
 2. Checkout: choose a 15-minute pickup slot and a mock payment method.
 3. Keep the QR / `IWF-xxxx` token screen open.
 4. In another tab, sign in as that stall and tap **Start preparing**, then **Mark ready**.
-5. The employee token screen flips to **Ready for pickup**.
+5. The employee token screen flips to **Ready for pickup**: the phone vibrates and chimes, the tab title changes, and a notification appears if the employee tapped **Notify me when it is ready**.
+6. At the counter, type the token's 4 digits into **Find token** (or tap **Scan QR** on a browser with a built-in QR reader, such as Chrome on Android) and tap **Mark collected**.
+
+## Cancelling
+
+- An employee can cancel from the token screen until the stall taps **Start preparing**.
+- The stall can cancel until the order is ready, picking a reason the employee sees ("An item ran out", "Kitchen is closing", "Too busy to make it in time").
+- Either way the mock payment shows as refunded and the order moves to the counter's **Done** tab.
+
+## Counter screen
+
+- **Today** shows orders, takings and cancellations for the campus day, and the top items.
+- **Find token** filters every tab by the digits typed; **Find** looks up today's order with that token even if it has dropped off the list. A QR scan checks the ticket's signature and refuses tickets for other stalls.
+- The queue refreshes every 3 seconds and costs almost nothing when nothing has changed (the server answers 304).
+- Two tablets can run the same stall: a tap made on a stale screen is refused instead of skipping a step.
 
 ## Employee sign-in
 
@@ -91,7 +105,21 @@ Reseeding never overwrites vendor edits; it only adds stalls or items that are m
 
 ## Hours
 
-Stall hours are campus time (IST). Most stalls serve lunch through the evening, a few (Idli & Filter Coffee, Sandwich & Wrap Lab, Maggi & Momos) run 24x7, and the biryani / meals counters are lunch-only. Pickup slots are 15-minute windows from about 10 minutes out until the stall closes, so the demo works at any hour.
+Stall hours are campus time (IST). Most stalls serve lunch through the evening, a few (Idli & Filter Coffee, Sandwich & Wrap Lab, Maggi & Momos) run 24x7, and the biryani / meals counters are lunch-only. Pickup slots are 15-minute windows from about 10 minutes out until the stall closes, so the demo works at any hour. Hours may cross midnight (e.g. `18:00`–`02:00`): the stall is open on both sides of midnight and takes slots up to closing.
+
+## Deploying
+
+A checklist for running this for real, on one server:
+
+1. **Node 20.9+**, then `npm ci && npm run build`. Run `npm start` under a process manager (systemd, pm2) or a container. It listens on `0.0.0.0:43123` (`HOST`, `PORT`).
+2. **Secrets and mode.** Set `SESSION_SECRET` (32+ random characters) in the environment or `.env.production`. Do **not** set `DEMO_MODE`.
+3. **SMS.** `SMS_PROVIDER=twilio` with `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM` or `TWILIO_MESSAGING_SERVICE_SID`. Indian numbers need a DLT-registered sender and template (see SMS provider above). Without SMS, employees can only use PINs and new employees cannot register.
+4. **TLS and proxy.** Put the app behind a reverse proxy (nginx, Caddy, a cloud load balancer) that terminates HTTPS and sets `X-Forwarded-For` and `X-Forwarded-Proto`, then set `TRUST_PROXY_HOPS=1`. Session cookies become `Secure` and HSTS turns on automatically over HTTPS.
+5. **Stall PINs.** The first build on an empty database prints a random PIN per stall. Hand each to its stall; they can change it under **Menu**.
+6. **Data.** SQLite lives in `prisma/dev.db`; back it up (e.g. `sqlite3 prisma/dev.db ".backup backup.db"`) and keep it on persistent disk. `npm run build` applies schema changes with `prisma db push` and never removes vendor edits.
+7. **Before employees use it:** connect registration to the HR directory or HPE SSO (names and IDs are not checked today), and replace the mock payment with the real Pluxee / UPI gateway.
+
+Rate limits and the code-request queue are kept in process memory, so run one instance. To scale out, move them to Redis and the database to Postgres.
 
 ## Security
 
@@ -124,7 +152,7 @@ With the app running in demo mode (`DEMO_MODE=1`, then `npm run build && npm sta
 npm run test:e2e
 ```
 
-It uses your installed Google Chrome (set `CHROME_PATH` for another Chromium binary, `BASE_URL` for another server, `SCREENSHOT_DIR` to keep screenshots). It covers registration, code and PIN sign-in, lockout and unlock, resend cooldown and forgot PIN, then places an order and takes it through the vendor queue, checks that a stale second counter tablet cannot skip an order past Ready, and that changing the counter PIN signs out other tablets. Each run registers new random numbers and never touches the demo employee. The suite takes about 75 seconds because it waits out the 30-second resend cooldown. Running it more than once in 15 minutes from one machine trips the PIN sign-in rate limit; restart the server to reset it.
+It uses your installed Google Chrome (set `CHROME_PATH` for another Chromium binary, `BASE_URL` for another server, `SCREENSHOT_DIR` to keep screenshots). It covers registration, code and PIN sign-in, lockout and unlock, resend cooldown and forgot PIN; places an order and takes it through the counter queue to collected (found by token); checks that a stale second tablet cannot skip a step, that changing the counter PIN signs out other tablets, that employees and stalls can cancel; and runs an axe accessibility audit (WCAG 2.1 AA) over every page. Each run registers new random numbers and never touches the demo employee. The suite takes about 75 seconds because it waits out the 30-second resend cooldown. Running it more than once in 15 minutes from one machine trips the PIN sign-in rate limit; restart the server to reset it.
 
 ## Stack
 
