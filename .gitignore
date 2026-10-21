@@ -46,3 +46,7 @@ next-env.d.ts
 /prisma/dev.db-journal
 *.db
 *.db-journal
+
+# test output
+/e2e-screenshots
+/server.log

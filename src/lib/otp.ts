@@ -34,7 +34,22 @@ export type IssueOtpResult =
   | { ok: true; challengeId: string }
   | { ok: false; error: "cooldown" | "phonelimit" | "daily" | "sms" };
 
-export async function issueOtp(phone: string, purpose: OtpPurpose): Promise<IssueOtpResult> {
+// Requests for one number take turns, so parallel requests cannot all pass the
+// cooldown and hourly checks before any of them is written. In-process, like
+// the rate limits: fine for one server.
+const issuing = new Map<string, Promise<unknown>>();
+
+export function issueOtp(phone: string, purpose: OtpPurpose): Promise<IssueOtpResult> {
+  const previous = issuing.get(phone) ?? Promise.resolve();
+  const run = previous.catch(() => {}).then(() => issueOtpNow(phone, purpose));
+  issuing.set(phone, run);
+  void run.finally(() => {
+    if (issuing.get(phone) === run) issuing.delete(phone);
+  }).catch(() => {});
+  return run;
+}
+
+async function issueOtpNow(phone: string, purpose: OtpPurpose): Promise<IssueOtpResult> {
   const now = Date.now();
   const lastHour = await prisma.otpChallenge.findMany({
     where: { phone, createdAt: { gt: new Date(now - HOUR_MS) } },
