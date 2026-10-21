@@ -69,9 +69,13 @@ model Order {
   stall         Stall       @relation(fields: [stallId], references: [id])
   status        String
   pickupSlot    String
+  // When that slot actually is (pickupSlot is only "HH:MM"); capacity counts by it.
+  pickupAt      DateTime?
   paymentMethod String
   paymentRef    String
   totalInr      Int
+  // Optional note for the kitchen, e.g. "less spicy".
+  note          String?
   // Set when status is CANCELLED: "employee" or "stall", and why (stall only).
   cancelledBy   String?
   cancelReason  String?
@@ -90,6 +94,7 @@ model Order {
 
   @@unique([stallId, tokenDay, token])
   @@index([stallId, ratedAt])
+  @@index([stallId, pickupAt])
   @@index([employeeId])
   @@index([stallId, status])
   @@index([stallId, updatedAt])

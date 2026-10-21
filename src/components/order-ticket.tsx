@@ -20,6 +20,7 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
   const [error, setError] = useState<string | null>(null);
   const [cancelling, startCancel] = useTransition();
   const [reordering, startReorder] = useTransition();
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const router = useRouter();
   const { replace } = useCart();
   const [notify, setNotify] = useState<"unsupported" | "ask" | "on" | "blocked">("unsupported");
@@ -80,7 +81,7 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
   }, [order.status, order.token]);
 
   function cancel() {
-    if (!window.confirm("Cancel this order? The mock payment is refunded.")) return;
+    setConfirmCancel(false);
     startCancel(async () => {
       const result = await cancelOwnOrder(order.id);
       edits.current += 1;
@@ -122,6 +123,7 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
   const ready = order.status === "READY";
   const collected = order.status === "COLLECTED";
   const cancelled = order.status === "CANCELLED";
+  const collectedAt = order.timeline.find((step) => step.label === "Collected")?.at;
 
   return (
     <div className="mx-auto max-w-md space-y-4" data-ticket-id={order.id}>
@@ -131,12 +133,16 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
         }`}
       >
         <p className="text-xs tracking-[0.2em] text-muted-foreground uppercase">
-          {cancelled ? "Cancelled order" : "Show this at the counter"}
+          {cancelled
+            ? "Cancelled order"
+            : collected
+              ? `Collected${collectedAt ? ` at ${collectedAt}` : ""}`
+              : "Show this at the counter"}
         </p>
         <h1 className={`mt-2 font-mono text-4xl font-semibold tracking-widest ${cancelled ? "text-muted-foreground line-through" : ""}`}>
           {order.token}
         </h1>
-        {cancelled ? null : (
+        {cancelled || collected ? null : (
           <div className="mt-4 flex justify-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={order.qrDataUrl} alt={`QR for ${order.token}`} className="size-52 rounded-lg border bg-white p-2" />
@@ -146,7 +152,7 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
           <Badge variant={ready ? "default" : collected || cancelled ? "secondary" : "outline"}>{order.statusLabel}</Badge>
         </div>
         <p className="mt-2 text-sm text-muted-foreground">
-          Pickup {order.pickupSlot} · {order.stallName}
+          Pickup {order.pickupSlot} · {order.stallName}, {order.stallLocation}
         </p>
         <ol aria-label="Order progress" className="mx-auto mt-4 flex max-w-xs justify-between text-[11px]">
           {order.timeline.map((step) => (
@@ -188,10 +194,23 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
         {open && !ready && notify === "on" ? (
           <p className="mt-3 text-xs text-muted-foreground">We will notify you when it is ready.</p>
         ) : null}
-        {employeeCanCancel(order.status) ? (
-          <Button variant="ghost" size="sm" className="mt-2 text-destructive" disabled={cancelling} onClick={cancel}>
+        {employeeCanCancel(order.status) && !confirmCancel ? (
+          <Button variant="ghost" size="sm" className="mt-2 text-destructive" disabled={cancelling} onClick={() => setConfirmCancel(true)}>
             {cancelling ? "Cancelling…" : "Cancel order"}
           </Button>
+        ) : null}
+        {employeeCanCancel(order.status) && confirmCancel ? (
+          <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
+            <p>Cancel {order.token}? The mock payment is refunded.</p>
+            <div className="mt-2 flex justify-center gap-2">
+              <Button size="sm" variant="destructive" disabled={cancelling} onClick={cancel}>
+                Yes, cancel it
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfirmCancel(false)}>
+                Keep order
+              </Button>
+            </div>
+          </div>
         ) : null}
       </div>
 
@@ -206,6 +225,7 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
 
       <div className="rounded-xl border bg-card p-4">
         <h2 className="font-medium">Items</h2>
+        {order.note ? <p className="mt-1 text-sm text-muted-foreground">Note: {order.note}</p> : null}
         <ul className="mt-2 space-y-2 text-sm">
           {order.items.map((item) => (
             <li key={item.id} className="flex items-center justify-between gap-2">
@@ -218,7 +238,9 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
           ))}
         </ul>
         <div className="mt-3 flex justify-between border-t pt-3 text-sm">
-          <span>Paid with {order.paymentLabel}</span>
+          <span>
+            {cancelled ? "Refunded to" : "Paid with"} {order.paymentLabel}
+          </span>
           <span className="font-semibold">{formatInr(order.totalInr)}</span>
         </div>
         <p className="mt-2 flex justify-between text-xs text-muted-foreground">

@@ -11,7 +11,10 @@ export const metadata = { title: "Stalls" };
 
 export default async function StallsPage() {
   const session = await getEmployeeSession();
-  const rows = await prisma.stall.findMany({ orderBy: { name: "asc" } });
+  const rows = await prisma.stall.findMany({
+    orderBy: { name: "asc" },
+    include: { items: { where: { archived: false }, select: { name: true } } },
+  });
   const [active, ratings] = await Promise.all([activeOrderCounts(), stallRatings()]);
   const stalls = rows
     .map((stall) => ({
@@ -28,6 +31,7 @@ export default async function StallsPage() {
       paused: stall.paused,
       openTime: stall.openTime,
       closeTime: stall.closeTime,
+      dishes: stall.items.map((item) => item.name),
     }))
     .sort((a, b) => Number(b.open) - Number(a.open) || a.name.localeCompare(b.name));
   const openCount = stalls.filter((stall) => stall.open).length;

@@ -17,6 +17,7 @@ export type OrderRecord = {
   cancelReason: string | null;
   createdAt: Date;
   rating: number | null;
+  note: string | null;
   preparingAt: Date | null;
   readyAt: Date | null;
   collectedAt: Date | null;
@@ -43,6 +44,7 @@ export type OrderView = {
   cancelNote: string | null;
   timeline: TimelineStep[];
   rating: number | null;
+  note: string | null;
   createdAt: string;
   items: { id: string; name: string; qty: number; priceInr: number; veg: boolean }[];
   qrDataUrl: string;
@@ -61,6 +63,7 @@ export function orderTimeline(order: Stamps): TimelineStep[] {
   const steps: TimelineStep[] = [{ label: "Placed", at: at(order.createdAt) }];
   if (order.status === "CANCELLED") {
     if (order.preparingAt) steps.push({ label: "Preparing", at: at(order.preparingAt) });
+    if (order.readyAt) steps.push({ label: "Ready", at: at(order.readyAt) });
     steps.push({ label: "Cancelled", at: at(order.cancelledAt) ?? "" });
     return steps;
   }
@@ -102,6 +105,7 @@ export async function toOrderView(order: OrderRecord): Promise<OrderView> {
     cancelNote: cancelNote(order),
     timeline: orderTimeline(order),
     rating: order.rating,
+    note: order.note,
     createdAt: order.createdAt.toISOString(),
     items: order.items,
     qrDataUrl,

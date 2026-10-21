@@ -7,7 +7,8 @@ import { pickupLead, serviceDay } from "@/lib/hours";
 import { activeOrderCounts } from "@/lib/stall-load";
 import {
   OPEN_STATUSES,
-  STALL_CANCEL_REASONS,
+  NO_SHOW_AFTER_MS,
+  cancelReasonsFor,
   isOrderStatus,
   nextStatus,
   randomToken,
@@ -16,7 +17,7 @@ import {
 import type { CartLine } from "@/lib/cart";
 import { effectivePrice } from "@/lib/pricing";
 import { verifyPin } from "@/lib/pin";
-import { isValidPickupSlot } from "@/lib/pickup-slots";
+import { findPickupSlot } from "@/lib/pickup-slots";
 import { verifyQrPayload } from "@/lib/qr";
 import { prisma } from "@/lib/prisma";
 import { clearBucket, clientIp, consume } from "@/lib/rate-limit";
@@ -44,6 +45,7 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 
 const MINUTE = 60_000;
 const ORDER_ID_PATTERN = /^[a-z0-9]{10,40}$/i;
+const MAX_NOTE_LENGTH = 120;
 
 export async function loginVendor(formData: FormData) {
   const ip = await clientIp();
@@ -92,6 +94,7 @@ export type PlaceOrderInput = {
   items: { menuItemId: string; qty: number }[];
   // What the bag showed; a mismatch means catalogue prices changed since the items were added.
   expectedTotalInr?: number;
+  note?: string;
 };
 
 type PlaceOrderResult =
@@ -119,12 +122,14 @@ function parseOrderInput(raw: unknown): PlaceOrderInput | null {
   if (new Set(items.map((line) => line.menuItemId)).size !== items.length) return null;
   const expectedTotalInr = raw.expectedTotalInr === undefined ? undefined : toInt(raw.expectedTotalInr);
   if (expectedTotalInr === null) return null;
+  const note = cleanText(raw.note, MAX_NOTE_LENGTH) || undefined;
   return {
     stallId,
     pickupSlot,
     paymentMethod: paymentMethod as PlaceOrderInput["paymentMethod"],
     items,
     expectedTotalInr,
+    note,
   };
 }
 
@@ -150,7 +155,8 @@ export async function placeOrder(rawInput: unknown): Promise<PlaceOrderResult> {
   // The earliest slot follows the kitchen's current wait, as at checkout.
   const active = (await activeOrderCounts([stall.id])).get(stall.id) ?? 0;
   const lead = pickupLead(active, stall.prepMinutes);
-  if (!isValidPickupSlot(input.pickupSlot, stall.openTime, stall.closeTime, new Date(), lead)) {
+  const slot = findPickupSlot(input.pickupSlot, stall.openTime, stall.closeTime, new Date(), lead);
+  if (!slot) {
     return {
       ok: false,
       error: `That pickup slot is no longer available at ${stall.name}. Pick another time.`,
@@ -199,12 +205,10 @@ export async function placeOrder(rawInput: unknown): Promise<PlaceOrderResult> {
   }
 
   const tokenDay = serviceDay(stall.openTime, stall.closeTime);
-  const inSlot = await prisma.order.count({
-    where: { stallId: stall.id, tokenDay, pickupSlot: input.pickupSlot, status: { not: "CANCELLED" } },
-  });
-  if (inSlot >= stall.slotCapacity) {
-    return { ok: false, error: `The ${input.pickupSlot} pickup slot at ${stall.name} just filled up. Pick another time.` };
-  }
+  const pickupAt = new Date(slot.at);
+  const slotFull = { ok: false as const, error: `The ${input.pickupSlot} pickup slot at ${stall.name} just filled up. Pick another time.` };
+  const inSlot = { stallId: stall.id, pickupAt, status: { not: "CANCELLED" } };
+  if ((await prisma.order.count({ where: inSlot })) >= stall.slotCapacity) return slotFull;
   for (let attempt = 0; ; attempt += 1) {
     const token = randomToken();
     // Never hand out a token that an order still waiting at this stall carries,
@@ -218,6 +222,8 @@ export async function placeOrder(rawInput: unknown): Promise<PlaceOrderResult> {
         data: {
           token,
           tokenDay,
+          pickupAt,
+          note: input.note ?? null,
           employeeId: employee.employeeId,
           employeeName: employee.name,
           stallId: stall.id,
@@ -232,6 +238,16 @@ export async function placeOrder(rawInput: unknown): Promise<PlaceOrderResult> {
         },
         select: { id: true },
       });
+      // Two checkouts can both see the last place free. Whoever committed
+      // later gives it back, so the slot never overfills. Commit order is the
+      // SQLite rowid; createdAt is stamped before the insert and can disagree.
+      const inSlotIds = (await prisma.order.findMany({ where: inSlot, select: { id: true } })).map((o) => o.id);
+      const keep = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "Order" WHERE id IN (${Prisma.join(inSlotIds)}) ORDER BY rowid LIMIT ${stall.slotCapacity}`;
+      if (!keep.some((kept) => kept.id === order.id)) {
+        await prisma.order.delete({ where: { id: order.id } });
+        return slotFull;
+      }
       revalidatePath("/orders");
       revalidatePath("/vendor");
       return { ok: true, orderId: order.id };
@@ -316,14 +332,25 @@ export async function cancelVendorOrder(
   if (!ORDER_ID_PATTERN.test(orderId) || !stallCanCancel(from)) {
     return { ok: false, error: "This order can no longer be cancelled." };
   }
-  if (!(STALL_CANCEL_REASONS as readonly string[]).includes(reason)) {
+  if (!cancelReasonsFor(from).includes(reason)) {
     return { ok: false, error: "Pick a reason to tell the employee." };
   }
 
   const cancelled = await prisma.order.updateMany({
-    where: { id: orderId, stallId: vendor.stallId, status: from },
+    where: {
+      id: orderId,
+      stallId: vendor.stallId,
+      status: from,
+      ...(from === "READY" ? { readyAt: { lte: new Date(Date.now() - NO_SHOW_AFTER_MS) } } : {}),
+    },
     data: { status: "CANCELLED", cancelledBy: "stall", cancelReason: reason, cancelledAt: new Date() },
   });
+  if (cancelled.count === 0 && from === "READY") {
+    const order = await prisma.order.findFirst({ where: { id: orderId, stallId: vendor.stallId }, select: { status: true } });
+    if (order?.status === "READY") {
+      return { ok: false, error: `Give them ${NO_SHOW_AFTER_MS / 60_000} minutes after it is ready before closing it as not collected.` };
+    }
+  }
   if (cancelled.count === 0) {
     const exists = await prisma.order.count({ where: { id: orderId, stallId: vendor.stallId } });
     return {
@@ -435,4 +462,26 @@ export async function rateOrder(rawOrderId: unknown, rawRating: unknown, rawComm
   if (rated.count === 0) return { ok: false, error: "This order can't be rated (already rated, or not collected yet)." };
   revalidatePath(`/orders/${orderId}`);
   return { ok: true };
+}
+
+export type BagCheck = Record<string, { state: "ok" | "soldout" | "gone"; priceInr?: number }>;
+
+// Checkout looks the bag up again: items can sell out, be hidden or change
+// price after they were added (the bag lives in the browser).
+export async function checkBag(rawStallId: unknown, rawIds: unknown): Promise<BagCheck> {
+  // Menus are behind sign-in like the pages that show them.
+  if (!(await getEmployeeSession())) return {};
+  const stallId = cleanText(rawStallId, 40);
+  const ids = Array.isArray(rawIds) ? rawIds.slice(0, MAX_LINES_PER_ORDER).map((id) => cleanText(id, 80)) : [];
+  if (!STALL_ID_PATTERN.test(stallId) || !ids.every((id) => ITEM_ID_PATTERN.test(id))) return {};
+  const items = await prisma.menuItem.findMany({ where: { stallId, id: { in: ids } } });
+  const byId = new Map(items.map((item) => [item.id, item]));
+  return Object.fromEntries(
+    ids.map((id) => {
+      const item = byId.get(id);
+      if (!item || item.archived) return [id, { state: "gone" as const }];
+      if (!item.available) return [id, { state: "soldout" as const }];
+      return [id, { state: "ok" as const, priceInr: effectivePrice(item) }];
+    }),
+  );
 }

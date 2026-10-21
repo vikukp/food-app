@@ -59,15 +59,26 @@ With `DEMO_MODE=1`:
 5. The employee token screen flips to **Ready for pickup**: the phone vibrates and chimes, the tab title changes, and a notification appears if the employee tapped **Notify me when it is ready**.
 6. At the counter, type the token's 4 digits into **Find token** (or tap **Scan QR** on a browser with a built-in QR reader, such as Chrome on Android) and tap **Mark collected**.
 
+## Ordering
+
+- **Wait times and slots.** Stall cards show a live wait from the kitchen queue ("Moderate · ~20 min"), and the first pickup slot moves out with it (an hour out at most). Each stall sets how many orders it can hand over per 15-minute slot; full slots are greyed out at checkout.
+- **Dietary info.** FSSAI marks (green circle veg, brown triangle non-veg), plus Egg and Jain tags, allergens and calories where the stall has added them. Menus offer Veg / No egg / Jain filters when they would narrow the list.
+- **Search** on the stall list matches dishes as well as stalls.
+- **The bag** belongs to one stall. Adding from another stall asks before starting a new bag; clearing it offers Undo. Checkout re-checks every item: anything sold out or taken off the menu since is marked and must be removed before paying, and changed prices update the total.
+- **Note for the kitchen** (optional, e.g. "less spicy") shows on the counter card, the ticket and the sales export.
+- **The ticket** shows Placed → Preparing → Ready → Collected with times, the stall's location, and a printable **receipt** with the GST split out of the price (`GST_RATE_PERCENT`, default 5; the stall's GSTIN if set). After collecting, employees can **rate** the order (optional); stalls show their 30-day rating once 5 people have rated.
+
 ## Cancelling
 
 - An employee can cancel from the token screen until the stall taps **Start preparing**.
-- The stall can cancel until the order is ready, picking a reason the employee sees ("An item ran out", "Kitchen is closing", "Too busy to make it in time").
+- The stall can cancel until the order is ready, picking a reason the employee sees ("An item ran out", "Kitchen is closing", "Too busy to make it in time"). A ready order that nobody collects can be closed as "Not collected".
 - Either way the mock payment shows as refunded and the order moves to the counter's **Done** tab.
 
 ## Counter screen
 
-- **Today** shows orders, takings and cancellations for the campus day, and the top items.
+- **Today** shows orders, takings and cancellations for the campus day, and the top items. Tabs show how many orders each holds; orders past their pickup time are marked **Late**, and food left ready for 15 minutes gets a "call it out" nudge. Buttons rest for a moment after a tap, so a double tap cannot skip a step.
+- **Counter display** (`/display/<stall>`, linked from the counter): a full-screen board for a TV facing the queue, showing which tokens are being prepared and which are ready. Tokens only, no names. Because anyone can read a token off the board, hand food over against the ticket's QR (Scan QR) or the name on the counter card, not the token alone. Orders left open for over 12 hours stop counting towards the wait and drop off the board.
+- **Menu** settings: items (with food type, Jain, allergens, calories), hours, orders per slot and prep time, pause, GSTIN, counter PIN, and the stall's recent feedback.
 - **Find token** filters every tab by the digits typed; **Find** looks up today's order with that token even if it has dropped off the list. A QR scan checks the ticket's signature and refuses tickets for other stalls.
 - The queue refreshes every 3 seconds and costs almost nothing when nothing has changed (the server answers 304).
 - Two tablets can run the same stall: a tap made on a stale screen is refused instead of skipping a step.

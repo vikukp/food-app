@@ -34,6 +34,8 @@ type ItemSeed = {
   veg: boolean;
   // Non-veg only because of egg.
   egg?: boolean;
+  // Only where the description itself says so; the seed invents no allergen data.
+  allergens?: string;
   category: string;
   available?: boolean;
 };
@@ -129,7 +131,7 @@ const stalls: StallSeed[] = [
     accent: "#b91c1c",
     items: [
       { slug: "veg-fried", name: "Veg fried rice", description: "Wok rice with mixed veg.", priceInr: 110, veg: true, category: "Rice" },
-      { slug: "chicken-fried", name: "Chicken fried rice", description: "Egg and chicken fried rice.", priceInr: 140, veg: false, category: "Rice" },
+      { slug: "chicken-fried", name: "Chicken fried rice", description: "Egg and chicken fried rice.", priceInr: 140, veg: false, allergens: "egg", category: "Rice" },
       { slug: "hakka", name: "Veg hakka noodles", description: "Tossed with chilli and garlic.", priceInr: 120, veg: true, category: "Noodles" },
       { slug: "manchurian", name: "Gobi manchurian dry", description: "Crisp cauliflower, spicy glaze.", priceInr: 130, veg: true, category: "Sides" },
       { slug: "chilli-chicken", name: "Chilli chicken dry", description: "Boneless, Indo-Chinese heat.", priceInr: 170, veg: false, category: "Sides" },
@@ -150,9 +152,9 @@ const stalls: StallSeed[] = [
     accent: "#7c2d12",
     items: [
       { slug: "egg", name: "Egg roll", description: "Single egg, onion, chilli, lime.", priceInr: 80, veg: false, egg: true, category: "Rolls" },
-      { slug: "chicken", name: "Chicken kathi roll", description: "Tikka, egg wash, onion.", priceInr: 130, veg: false, category: "Rolls" },
+      { slug: "chicken", name: "Chicken kathi roll", description: "Tikka, egg wash, onion.", priceInr: 130, veg: false, allergens: "egg", category: "Rolls" },
       { slug: "paneer", name: "Paneer roll", description: "Spiced paneer, mint, onion.", priceInr: 110, veg: true, category: "Rolls" },
-      { slug: "double-egg", name: "Double egg chicken roll", description: "Heavier wrap for a late lunch.", priceInr: 150, veg: false, category: "Rolls" },
+      { slug: "double-egg", name: "Double egg chicken roll", description: "Heavier wrap for a late lunch.", priceInr: 150, veg: false, allergens: "egg", category: "Rolls" },
       { slug: "aloo", name: "Aloo masala roll", description: "Potato filling, green chutney.", priceInr: 70, veg: true, category: "Rolls" },
       { slug: "cheese-chicken", name: "Cheese chicken roll", description: "Melted cheese over tikka.", priceInr: 160, veg: false, category: "Rolls" },
     ],
@@ -336,7 +338,7 @@ const stalls: StallSeed[] = [
       { slug: "vada-combo", name: "Idli vada combo", description: "Two idli, one vada.", priceInr: 70, veg: true, category: "Tiffin" },
       { slug: "pongal", name: "Ven pongal", description: "With ghee, sambar, chutney.", priceInr: 80, veg: true, category: "Tiffin" },
       { slug: "kesari", name: "Kesari bath", description: "Small plate.", priceInr: 40, veg: true, category: "Dessert" },
-      { slug: "coffee", name: "Filter coffee", description: "Byriani-strong decoction.", priceInr: 35, veg: true, category: "Drinks" },
+      { slug: "coffee", name: "Filter coffee", description: "Strong chicory decoction, frothed.", priceInr: 35, veg: true, category: "Drinks" },
       { slug: "tea", name: "Ginger tea", description: "Cutting chai style, full cup.", priceInr: 20, veg: true, category: "Drinks" },
     ],
   },
@@ -492,14 +494,8 @@ async function main() {
 
     for (const item of stall.items) {
       const id = `${stall.id}-${item.slug}`;
-      const found = await prisma.menuItem.findUnique({ where: { id }, select: { id: true, name: true, egg: true } });
-      if (found) {
-        // Label egg dishes seeded before the egg mark existed, unless the stall renamed them.
-        if (item.egg && !found.egg && found.name === item.name) {
-          await prisma.menuItem.update({ where: { id }, data: { egg: true } });
-        }
-        continue;
-      }
+      const found = await prisma.menuItem.findUnique({ where: { id }, select: { id: true } });
+      if (found) continue;
       await prisma.menuItem.create({
         data: {
           id,
@@ -509,6 +505,7 @@ async function main() {
           priceInr: item.priceInr,
           veg: item.veg,
           egg: item.egg ?? false,
+          allergens: item.allergens ?? "",
           category: item.category,
           available: item.available ?? true,
         },

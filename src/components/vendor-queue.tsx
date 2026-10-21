@@ -9,12 +9,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { advanceVendorOrder, cancelVendorOrder, lookupVendorOrder, type ActionResult } from "@/lib/actions";
 import { formatInr } from "@/lib/money";
-import { STALL_CANCEL_REASONS, nextStatus, stallCanCancel, statusLabel, type OrderStatus } from "@/lib/orders";
+import { campusMinutesNow, parseHm } from "@/lib/hours";
+import { NO_SHOW_AFTER_MS, cancelReasonsFor, nextStatus, statusLabel, type OrderStatus } from "@/lib/orders";
 import type { VendorDaySummary, VendorOrder, VendorQueueSnapshot } from "@/lib/vendor-orders";
 
 const TABS = ["active", "ready", "done"] as const;
 // Food left on the counter this long gets a nudge to call the token out.
 const UNCOLLECTED_MS = 15 * 60_000;
+// After a tap the card's buttons rest this long, so a double tap on "Mark
+// ready" does not land on the "Mark collected" that replaces it.
+const TAP_COOLDOWN_MS = 1200;
+
+// Minutes past the pickup slot, in campus time (slots can wrap past midnight).
+function minutesLate(slot: string, now: number) {
+  let diff = campusMinutesNow(new Date(now)) - parseHm(slot);
+  if (diff < -720) diff += 1440;
+  if (diff > 720) diff -= 1440;
+  return diff;
+}
 
 export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
   const [orders, setOrders] = useState(initial.orders);
@@ -39,6 +51,7 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   // The order whose "Cancel" was tapped, so its reason picker is showing.
   const [cancelFor, setCancelFor] = useState<string | null>(null);
+  const [cooling, setCooling] = useState<ReadonlySet<string>>(new Set());
   // Bumped on every local status change, so a poll that started before it
   // cannot land afterwards and bring back the old button.
   const edits = useRef(0);
@@ -73,6 +86,11 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
   }, [refresh]);
 
   const digits = query.replace(/\D/g, "");
+  const counts = {
+    active: orders.filter((o) => o.status === "PLACED" || o.status === "PREPARING").length,
+    ready: orders.filter((o) => o.status === "READY").length,
+    done: orders.filter((o) => o.status === "COLLECTED" || o.status === "CANCELLED").length,
+  };
   const visible = orders.filter((order) => {
     if (digits) return order.token.includes(digits);
     if (tab === "active") return order.status === "PLACED" || order.status === "PREPARING";
@@ -89,6 +107,7 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
           toast.error(result.error);
           return;
         }
+        toast.dismiss();
         const found = { ...result.order, found: true };
         edits.current += 1;
         setOrders((current) =>
@@ -120,6 +139,16 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
       setOrders((current) => current.map((o) => (o.id === order.id ? { ...o, ...patch } : o)));
       setCancelFor(null);
       toast.success(done);
+      setCooling((ids) => new Set(ids).add(order.id));
+      setTimeout(
+        () =>
+          setCooling((ids) => {
+            const left = new Set(ids);
+            left.delete(order.id);
+            return left;
+          }),
+        TAP_COOLDOWN_MS,
+      );
     });
   }
 
@@ -158,22 +187,24 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
       </form>
       {scanning ? <QrScanner onResult={find} onClose={() => setScanning(false)} /> : null}
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {TABS.map((id) => (
           <button
             key={id}
             type="button"
+            aria-pressed={!digits && tab === id}
             onClick={() => {
               setTab(id);
               clearSearch();
             }}
             className={`h-9 rounded-lg px-3 text-sm font-medium capitalize ${
-              tab === id ? "bg-primary text-primary-foreground" : "bg-card ring-1 ring-border"
+              !digits && tab === id ? "bg-primary text-primary-foreground" : "bg-card ring-1 ring-border"
             }`}
           >
-            {id}
+            {id} <span className="tabular-nums opacity-80">({counts[id]})</span>
           </button>
         ))}
+        {digits ? <p className="text-sm text-muted-foreground">Search results for {digits}</p> : null}
       </div>
 
       {loadError ? <p className="text-sm text-destructive">{loadError}</p> : null}
@@ -182,7 +213,9 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
         <div className="rounded-xl border border-dashed bg-card p-8 text-center">
           <p className="font-medium">
             {digits
-              ? `No order with ${digits} in the queue. Press Find to look it up.`
+              ? digits.length === 4
+                ? `${digits} is not in the queue. Press Find to look up today's orders.`
+                : "Type all 4 digits of the token."
               : tab === "active"
               ? "No orders to cook right now."
               : tab === "ready"
@@ -197,6 +230,15 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
         <ul className="space-y-3">
           {visible.map((order) => {
             const next = nextStatus(order.status as OrderStatus);
+            const late =
+              (order.status === "PLACED" || order.status === "PREPARING") && now !== null
+                ? minutesLate(order.pickupSlot, now)
+                : 0;
+            const resting = pending || cooling.has(order.id);
+            const noShowTooSoon =
+              order.status === "READY" &&
+              (now === null || !order.readyAt || now - Date.parse(order.readyAt) < NO_SHOW_AFTER_MS);
+            const reasons = noShowTooSoon ? [] : cancelReasonsFor(order.status);
             return (
               <li key={order.id} className="rounded-xl border bg-card p-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -206,9 +248,12 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
                       Pickup {order.pickupSlot} · {order.employeeName}
                     </p>
                   </div>
-                  <Badge variant={order.status === "CANCELLED" ? "secondary" : "outline"}>
-                    {statusLabel(order.status)}
-                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    {late > 5 ? <Badge variant="destructive">Late {late} min</Badge> : null}
+                    <Badge variant={order.status === "CANCELLED" ? "secondary" : "outline"}>
+                      {statusLabel(order.status)}
+                    </Badge>
+                  </div>
                 </div>
                 {order.status === "READY" && order.readyAt && now !== null && now - Date.parse(order.readyAt) > UNCOLLECTED_MS ? (
                   <p role="status" className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-950">
@@ -229,19 +274,33 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
                     </li>
                   ))}
                 </ul>
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <p className="text-xs text-muted-foreground">
-                    {order.paymentLabel} · {formatInr(order.totalInr)}
+                {order.note ? (
+                  <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-sm text-amber-950">
+                    <span className="font-medium">Note:</span> {order.note}
                   </p>
+                ) : null}
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {order.paymentLabel} · {formatInr(order.totalInr)}
+                </p>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  {/* Cancel sits away from the main button, on the other side of the card. */}
+                  {reasons.length && cancelFor !== order.id ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground"
+                      disabled={resting}
+                      onClick={() => setCancelFor(order.id)}
+                    >
+                      {order.status === "READY" ? "Cancel (no-show)" : "Cancel"}
+                    </Button>
+                  ) : (
+                    <span />
+                  )}
                   <div className="flex items-center gap-2">
-                    {stallCanCancel(order.status) && cancelFor !== order.id ? (
-                      <Button variant="ghost" size="sm" disabled={pending} onClick={() => setCancelFor(order.id)}>
-                        Cancel
-                      </Button>
-                    ) : null}
                     {next && cancelFor !== order.id ? (
                       <Button
-                        disabled={pending}
+                        disabled={resting}
                         onClick={() =>
                           change(order, { status: next }, () => advanceVendorOrder(order.id, order.status), statusLabel(next))
                         }
@@ -259,7 +318,7 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
                   <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
                     <p className="text-sm font-medium">Cancel {order.token}? The employee is refunded and told why:</p>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {STALL_CANCEL_REASONS.map((reason) => (
+                      {reasons.map((reason) => (
                         <Button
                           key={reason}
                           variant="outline"

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { SearchIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { hoursLabel } from "@/lib/hours";
@@ -24,6 +25,8 @@ export type StallCardData = {
   paused: boolean;
   openTime: string;
   closeTime: string;
+  // Names of dishes on the menu, so searching "paneer" finds the stalls serving it.
+  dishes: string[];
 };
 
 export function StallGrid({ stalls }: { stalls: StallCardData[] }) {
@@ -40,10 +43,14 @@ export function StallGrid({ stalls }: { stalls: StallCardData[] }) {
       return (
         stall.name.toLowerCase().includes(q) ||
         stall.cuisine.toLowerCase().includes(q) ||
-        stall.description.toLowerCase().includes(q)
+        stall.description.toLowerCase().includes(q) ||
+        stall.dishes.some((dish) => dish.toLowerCase().includes(q))
       );
     });
   }, [openNow, query, stalls, vegOnly]);
+  const q = query.trim().toLowerCase();
+  const matchingDishes = (stall: StallCardData) =>
+    q ? stall.dishes.filter((dish) => dish.toLowerCase().includes(q)).slice(0, 3) : [];
 
   return (
     <div className="space-y-4">
@@ -55,7 +62,7 @@ export function StallGrid({ stalls }: { stalls: StallCardData[] }) {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search dosa, biryani, rolls…"
             className="h-10 pl-8"
-            aria-label="Search stalls"
+            aria-label="Search stalls and dishes"
           />
         </label>
         <div className="flex gap-2">
@@ -66,10 +73,18 @@ export function StallGrid({ stalls }: { stalls: StallCardData[] }) {
 
       {filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed bg-card p-8 text-center">
-          <p className="font-medium">No stalls match that filter.</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Clear search or turn off veg / open-now to see the full court.
-          </p>
+          <p className="font-medium">No stalls or dishes match that.</p>
+          <Button
+            variant="outline"
+            className="mt-3"
+            onClick={() => {
+              setQuery("");
+              setVegOnly(false);
+              setOpenNow(false);
+            }}
+          >
+            Clear search and filters
+          </Button>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -90,6 +105,12 @@ export function StallGrid({ stalls }: { stalls: StallCardData[] }) {
                 </CardHeader>
                 <CardContent className="pb-4">
                   <p className="line-clamp-2 text-sm text-muted-foreground">{stall.description}</p>
+                  {matchingDishes(stall).length ? (
+                    <p className="mt-2 text-sm">
+                      <span className="text-muted-foreground">Has </span>
+                      {matchingDishes(stall).join(", ")}
+                    </p>
+                  ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">
                     {stall.vegOnly ? <Badge variant="outline">Pure veg</Badge> : null}
                     {stall.open ? <Badge variant="outline">{stall.wait}</Badge> : null}
@@ -118,6 +139,7 @@ function FilterChip({
   return (
     <button
       type="button"
+      aria-pressed={active}
       onClick={onClick}
       className={`h-10 rounded-lg border px-3 text-sm font-medium ${
         active

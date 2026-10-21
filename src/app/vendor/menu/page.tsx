@@ -90,7 +90,7 @@ export default async function VendorMenuPage({
           ) : null}
         </section>
 
-        <section className="mt-6 rounded-xl border bg-card p-4">
+        <section id="counter-hours" className="mt-6 scroll-mt-20 rounded-xl border bg-card p-4">
           <h2 className="font-medium">Counter hours</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Now {hoursLabel(stall.openTime, stall.closeTime)} (IST)
@@ -179,7 +179,7 @@ export default async function VendorMenuPage({
           </form>
         </section>
 
-        <section className="mt-6 rounded-xl border bg-card p-4">
+        <section id="gstin" className="mt-6 scroll-mt-20 rounded-xl border bg-card p-4">
           <h2 className="font-medium">GSTIN for receipts</h2>
           <form action={updateStallGstin} className="mt-3 flex flex-wrap items-end gap-2">
             <div className="min-w-48 flex-1 space-y-1">
@@ -201,7 +201,7 @@ export default async function VendorMenuPage({
           </form>
         </section>
 
-        <section className="mt-6 rounded-xl border bg-card p-4">
+        <section id="counter-pin" className="mt-6 scroll-mt-20 rounded-xl border bg-card p-4">
           <h2 className="font-medium">Counter PIN</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Set your own PIN so only your staff can open this queue. Changing it signs out every other tablet.

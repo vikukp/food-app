@@ -1,20 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
 import { useCart } from "@/components/cart-provider";
+import { QtyStepper } from "@/components/qty-stepper";
 import { VegDot } from "@/components/veg-dot";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { placeOrder } from "@/lib/actions";
+import { checkBag, placeOrder, type BagCheck } from "@/lib/actions";
 import { hoursLabel } from "@/lib/hours";
 import { formatInr } from "@/lib/money";
 import type { PickupSlot } from "@/lib/pickup-slots";
 
-const PLUXEE_BALANCE = 2400;
 
 export type CheckoutStall = {
   name: string;
@@ -33,6 +33,35 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
   const [cardName, setCardName] = useState("Priya Nair");
   const [cardNumber, setCardNumber] = useState("4242 4242 4242 4242");
   const [submitting, setSubmitting] = useState(false);
+  const [note, setNote] = useState("");
+  const [bagCheck, setBagCheck] = useState<BagCheck>({});
+  const lineKey = cart.items.map((item) => item.menuItemId).join(",");
+
+  // Look the bag up against today's menu once it has loaded from storage.
+  useEffect(() => {
+    if (!hydrated || !cart.stallId || !lineKey) return;
+    let live = true;
+    checkBag(cart.stallId, lineKey.split(","))
+      .then((result) => {
+        if (!live) return;
+        setBagCheck(result);
+        const changed = Object.fromEntries(
+          Object.entries(result).flatMap(([id, line]) => (line.priceInr !== undefined ? [[id, line.priceInr]] : [])),
+        );
+        const moved = cart.items.some((item) => changed[item.menuItemId] !== undefined && changed[item.menuItemId] !== item.priceInr);
+        if (moved) {
+          setPrices(changed);
+          toast.info("Some prices changed since you added them. The total is up to date.");
+        }
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+    // Only when the set of lines changes, not on every quantity change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, cart.stallId, lineKey]);
+  const unavailable = cart.items.filter((item) => bagCheck[item.menuItemId] && bagCheck[item.menuItemId].state !== "ok");
 
   const stall = cart.stallId ? stalls[cart.stallId] : undefined;
   const slots = stall?.slots ?? [];
@@ -100,6 +129,7 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
         paymentMethod: method,
         items: cart.items.map((item) => ({ menuItemId: item.menuItemId, qty: item.qty })),
         expectedTotalInr: total,
+        note,
       });
       if (!result.ok) {
         if (result.prices) setPrices(result.prices);
@@ -130,6 +160,7 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
                 key={slot.value}
                 type="button"
                 disabled={slot.full}
+                aria-pressed={pickupSlot === slot.value}
                 aria-label={slot.full ? `${slot.label}, full` : slot.label}
                 onClick={() => setChosenSlot(slot.value)}
                 className={`flex h-12 flex-col items-center justify-center rounded-lg border text-sm font-medium disabled:cursor-not-allowed disabled:opacity-45 ${
@@ -150,6 +181,20 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
         </section>
 
         <section className="rounded-xl border bg-card p-4">
+          <Label htmlFor="order-note" className="font-medium">
+            Note for the kitchen (optional)
+          </Label>
+          <Input
+            id="order-note"
+            className="mt-2 h-10"
+            maxLength={120}
+            placeholder="Less spicy, no onion, extra chutney…"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </section>
+
+        <section className="rounded-xl border bg-card p-4">
           <h2 className="font-medium">Pay (mock)</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             No real Pluxee, UPI, or card charge. This is a campus demo checkout.
@@ -159,7 +204,7 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
               selected={method === "PLUXEE"}
               onSelect={() => setMethod("PLUXEE")}
               title="Pluxee"
-              subtitle={`Meal card · balance ${formatInr(PLUXEE_BALANCE)}`}
+              subtitle="Meal card"
             />
             <PayMethod
               selected={method === "UPI"}
@@ -177,8 +222,8 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
 
           {method === "PLUXEE" ? (
             <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
-              After this order, mock Pluxee balance will show{" "}
-              {formatInr(PLUXEE_BALANCE - total)}.
+              {formatInr(total)} will be charged to your Pluxee meal card. (Mock: no card is charged and no balance is
+              checked in this demo.)
             </p>
           ) : null}
 
@@ -211,34 +256,46 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
 
       <aside className="h-fit rounded-xl border bg-card p-4 lg:sticky lg:top-20">
         <h2 className="font-medium">{cart.stallName}</h2>
-        <ul className="mt-3 space-y-2">
-          {cart.items.map((item) => (
-            <li key={item.menuItemId} className="flex items-start justify-between gap-2 text-sm">
-              <span className="flex min-w-0 items-center gap-2">
-                <VegDot veg={item.veg} />
-                <span className="truncate">
-                  {item.qty}× {item.name}
-                </span>
-              </span>
-              <span className="flex shrink-0 items-center gap-2 text-xs">
-                <span>{formatInr(item.priceInr * item.qty)}</span>
-                <button
-                  type="button"
-                  className="text-muted-foreground underline"
-                  aria-label={`Remove ${item.name}`}
-                  onClick={() => setQty(item.menuItemId, 0)}
-                >
-                  Remove
-                </button>
-              </span>
-            </li>
-          ))}
+        <ul className="mt-3 space-y-3">
+          {cart.items.map((item) => {
+            const state = bagCheck[item.menuItemId]?.state;
+            return (
+              <li key={item.menuItemId} className="text-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="flex min-w-0 items-start gap-2">
+                    <VegDot veg={item.veg} className="mt-0.5" />
+                    <span className={`break-words ${state && state !== "ok" ? "text-muted-foreground line-through" : ""}`}>
+                      {item.name}
+                    </span>
+                  </span>
+                  <span className="shrink-0 tabular-nums">{formatInr(item.priceInr * item.qty)}</span>
+                </div>
+                {state && state !== "ok" ? (
+                  <p className="mt-1 flex items-center justify-between gap-2 text-xs text-destructive">
+                    {state === "soldout" ? "Sold out now" : "No longer on the menu"}
+                    <button type="button" className="font-medium underline" onClick={() => setQty(item.menuItemId, 0)}>
+                      Remove
+                    </button>
+                  </p>
+                ) : (
+                  <div className="mt-1 flex justify-end">
+                    <QtyStepper menuItemId={item.menuItemId} name={item.name} qty={item.qty} />
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
+        {unavailable.length ? (
+          <p role="alert" className="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-red-900">
+            Remove the items marked above to pay. The stall cannot make them right now.
+          </p>
+        ) : null}
         <div className="mt-4 flex items-center justify-between border-t pt-3 text-sm">
           <span className="text-muted-foreground">To pay</span>
           <span className="text-base font-semibold">{formatInr(total)}</span>
         </div>
-        <Button className="mt-4 h-11 w-full" disabled={submitting} onClick={pay}>
+        <Button className="mt-4 h-11 w-full" disabled={submitting || unavailable.length > 0} onClick={pay}>
           {submitting ? "Paying…" : `Pay ${formatInr(total)}`}
         </Button>
       </aside>
@@ -260,6 +317,7 @@ function PayMethod({
   return (
     <button
       type="button"
+      aria-pressed={selected}
       onClick={onSelect}
       className={`rounded-lg border px-3 py-2 text-left ${
         selected ? "border-primary bg-primary/5" : "border-border"

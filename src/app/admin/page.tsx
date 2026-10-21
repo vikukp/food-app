@@ -42,9 +42,9 @@ export default async function AdminPage() {
           Today across {stalls.length} stalls: {total.orders} orders, {formatInr(total.revenueInr)}.
           {canChangePin(admin)
             ? " PIN resets are available for the next few minutes."
-            : " To reset a stall PIN, sign in again with a one-time code."}
+            : " Resetting a stall PIN needs a code sign-in from the last 10 minutes: sign out, then sign in with a one-time code."}
         </p>
-        <ul className="mt-5 space-y-3">
+        <ul className="mt-5 grid gap-3 md:grid-cols-2">
           {stalls.map((stall, i) => (
             <AdminStallRow
               key={stall.id}

@@ -10,7 +10,7 @@ export default function HomePage() {
       <SiteHeader variant="public" />
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 py-8 sm:py-12">
         <p className="text-sm font-medium tracking-[0.18em] text-emerald-800 uppercase">
-          HPE IWF Campus
+          Order ahead · pick up on time
         </p>
         <h1 className="mt-2 max-w-xl text-3xl font-semibold tracking-tight text-pretty sm:text-4xl">
           Skip the afternoon food-court line.
