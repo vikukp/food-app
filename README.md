@@ -110,6 +110,14 @@ Stall hours are campus time (IST). Most stalls serve lunch through the evening, 
 
 ## Tests
 
+```bash
+npm run lint
+npm run typecheck
+npm test            # unit tests (node:test): hours and pickup slots, pricing, tokens, PINs, phones, QR, client address
+```
+
+GitHub Actions (`.github/workflows/ci.yml`) runs all of these plus a production build and the browser suite on every pull request and push to `main`.
+
 With the app running in demo mode (`DEMO_MODE=1`, then `npm run build && npm start`), run the browser suite in another terminal:
 
 ```bash
