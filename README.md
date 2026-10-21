@@ -103,6 +103,14 @@ Signed-in stall staff get a **Menu** link in the header (`/vendor/menu`) where t
 
 Reseeding never overwrites vendor edits; it only adds stalls or items that are missing.
 
+## Food court admin
+
+Employees listed in `ADMIN_EMPLOYEE_IDS` (comma-separated employee IDs) get a **Food court admin** link on their orders page (`/admin`). In demo mode with none listed, the demo employee is the admin. Everyone else gets "Not found" there.
+
+- Every stall at a glance: open, closed or paused; today's orders, takings, cancellations and how many are waiting.
+- Pause or resume any stall.
+- **Reset counter PIN** for a stall that forgot it: a new random 6-digit PIN is shown once, and every tablet signed in to the stall is signed out. This needs a code sign-in in the last 10 minutes. Resets and pauses are logged to the server console with the admin's employee ID.
+
 ## Hours
 
 Stall hours are campus time (IST). Most stalls serve lunch through the evening, a few (Idli & Filter Coffee, Sandwich & Wrap Lab, Maggi & Momos) run 24x7, and the biryani / meals counters are lunch-only. Pickup slots are 15-minute windows from about 10 minutes out until the stall closes, so the demo works at any hour. Hours may cross midnight (e.g. `18:00`–`02:00`): the stall is open on both sides of midnight and takes slots up to closing.
@@ -116,8 +124,9 @@ A checklist for running this for real, on one server:
 3. **SMS.** `SMS_PROVIDER=twilio` with `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM` or `TWILIO_MESSAGING_SERVICE_SID`. Indian numbers need a DLT-registered sender and template (see SMS provider above). Without SMS, employees can only use PINs and new employees cannot register.
 4. **TLS and proxy.** Put the app behind a reverse proxy (nginx, Caddy, a cloud load balancer) that terminates HTTPS and sets `X-Forwarded-For` and `X-Forwarded-Proto`, then set `TRUST_PROXY_HOPS=1` (in the environment or `.env.production`). Session cookies become `Secure` and HSTS turns on automatically over HTTPS. Make sure browsers can only reach the app through the proxy: with the proxy on the same machine set `HOST=127.0.0.1`, otherwise firewall port 43123, or a client connecting directly could choose its own address.
 5. **Stall PINs.** The first build on an empty database prints a random PIN per stall. Hand each to its stall; they can change it under **Menu**. If the database was created in demo mode, the build warns about every stall still on the demo PIN.
-6. **Data.** SQLite lives in `prisma/dev.db`; back it up (e.g. `sqlite3 prisma/dev.db ".backup backup.db"`) and keep it on persistent disk. `npm run build` applies schema changes with `prisma db push` and never removes vendor edits.
-7. **Before employees use it:** connect registration to the HR directory or HPE SSO (names and IDs are not checked today), and replace the mock payment with the real Pluxee / UPI gateway.
+6. **Admins.** Set `ADMIN_EMPLOYEE_IDS` to the food court managers' employee IDs.
+7. **Data.** SQLite lives in `prisma/dev.db`; back it up (e.g. `sqlite3 prisma/dev.db ".backup backup.db"`) and keep it on persistent disk. `npm run build` applies schema changes with `prisma db push` and never removes vendor edits.
+8. **Before employees use it:** connect registration to the HR directory or HPE SSO (names and IDs are not checked today), and replace the mock payment with the real Pluxee / UPI gateway.
 
 Rate limits and the code-request queue are kept in process memory, so run one instance. To scale out, move them to Redis and the database to Postgres.
 
