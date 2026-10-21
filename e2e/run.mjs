@@ -1,0 +1,443 @@
+// Browser checks against a running server in demo SMS mode:
+//   npm run build && npm start      (in one terminal)
+//   npm run test:e2e                (in another)
+// BASE_URL, CHROME_PATH and SCREENSHOT_DIR are optional. Every run registers
+// fresh random mobile numbers and never touches the demo employee.
+import { randomInt } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import { chromium } from "playwright-core";
+
+const BASE = (process.env.BASE_URL ?? "http://127.0.0.1:43123").replace(/\/+$/, "");
+const VENDOR_PIN = process.env.DEMO_VENDOR_PIN ?? "1234";
+const SHOTS = process.env.SCREENSHOT_DIR;
+const RESEND_WAIT_MS = 31_000;
+if (SHOTS) mkdirSync(SHOTS, { recursive: true });
+
+const results = [];
+const pageErrors = [];
+const lastCodeAt = new Map();
+
+async function step(name, run) {
+  const started = Date.now();
+  try {
+    const note = await run();
+    results.push(true);
+    console.log(`PASS  ${name}${note ? ` — ${note}` : ""} (${((Date.now() - started) / 1000).toFixed(1)}s)`);
+  } catch (error) {
+    results.push(false);
+    console.log(`FAIL  ${name} — ${String(error?.message ?? error).split("\n")[0].slice(0, 300)}`);
+  }
+}
+
+function check(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function randomPhone() {
+  return `7${String(randomInt(0, 1e9)).padStart(9, "0")}`;
+}
+
+function spaced(phone) {
+  return `+91 ${phone.slice(0, 5)} ${phone.slice(5)}`;
+}
+
+function masked(phone) {
+  return `+91 ${phone.slice(0, 2)}••• ••${phone.slice(7)}`;
+}
+
+const browser = await chromium.launch(
+  process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: "chrome" },
+);
+
+async function newPage(label, viewport = { width: 1280, height: 900 }) {
+  const context = await browser.newContext({ viewport });
+  const page = await context.newPage();
+  page.on("pageerror", (error) => pageErrors.push(`[${label}] ${error.message.slice(0, 200)}`));
+  page.on("console", (message) => {
+    if (message.type() === "error") pageErrors.push(`[${label}] ${message.text().slice(0, 200)}`);
+  });
+  return page;
+}
+
+async function snap(page, name) {
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true });
+}
+
+async function alertText(page) {
+  const alert = page.locator("main [role='alert']").first();
+  await alert.waitFor({ timeout: 5000 });
+  return (await alert.innerText()).trim();
+}
+
+async function inboxCode(page) {
+  const message = page.getByText(/is your HPE IWF Food Court sign-in code/);
+  await message.waitFor({ timeout: 5000 });
+  return (await message.innerText()).match(/(\d{6}) is your/)[1];
+}
+
+// The server allows one code per number every 30 seconds.
+async function requestCode(page, phone, path = "/enter") {
+  const last = lastCodeAt.get(phone);
+  if (last) await sleep(Math.max(0, last + RESEND_WAIT_MS - Date.now()));
+  await page.goto(`${BASE}${path}`);
+  await page.fill("#phone", phone);
+  await page.getByRole("button", { name: "Send code" }).click();
+  await page.waitForURL(`${BASE}/enter/verify`);
+  lastCodeAt.set(phone, Date.now());
+  return inboxCode(page);
+}
+
+async function submitCode(page, code) {
+  if (page.url() !== `${BASE}/enter/verify`) await page.goto(`${BASE}/enter/verify`);
+  await page.locator("#code").waitFor();
+  await page.fill("#code", code);
+  await page.getByRole("button", { name: "Verify and continue" }).click();
+}
+
+// Start from the bare URL: a refusal redirects to ?error=…, and a second
+// refusal with the same code would not change the URL to wait on.
+async function submitRegistration(page, { name, employeeId, pin, confirm = pin }) {
+  if (page.url() !== `${BASE}/enter/register`) await page.goto(`${BASE}/enter/register`);
+  await page.fill("#name", name);
+  await page.fill("#employeeId", employeeId);
+  await page.fill("#pin", pin);
+  await page.fill("#confirmPin", confirm);
+  await page.getByRole("button", { name: "Create account" }).click();
+}
+
+async function pinSignIn(page, identifier, pin) {
+  await page.goto(`${BASE}/enter?method=pin`);
+  await page.fill("#identifier", identifier);
+  await page.fill("#pin", pin);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+}
+
+async function signOut(page) {
+  await page.locator("header").getByRole("button", { name: "Sign out" }).click();
+  await page.waitForURL(`${BASE}/`);
+}
+
+let pin = "5172";
+const nextPin = "6391";
+let phone = randomPhone();
+while (phone.endsWith(pin) || phone.endsWith(nextPin)) phone = randomPhone();
+const user = {
+  phone,
+  name: "Asha Verma",
+  employeeId: `QA-${randomInt(0, 36 ** 6).toString(36).toUpperCase().padStart(6, "0")}`,
+};
+
+const emp = await newPage("employee");
+
+await step("sign-in page offers a one-time code or a PIN", async () => {
+  await emp.goto(`${BASE}/`);
+  await emp.getByRole("link", { name: "Continue as employee" }).click();
+  await emp.waitForURL(`${BASE}/enter`);
+  const methods = emp.getByRole("navigation", { name: "Sign-in method" });
+  check(
+    (await methods.getByRole("link", { name: "One-time code" }).getAttribute("aria-current")) === "page",
+    "one-time code is not the default method",
+  );
+  check((await methods.getByRole("link", { name: "PIN" }).count()) === 1, "PIN method missing");
+  check((await emp.getByText("Demo SMS mode").count()) === 1, "demo SMS banner missing (is SMS_PROVIDER unset?)");
+  await snap(emp, "01-sign-in-code");
+  await emp.getByRole("link", { name: "PIN" }).click();
+  await emp.waitForURL(`${BASE}/enter?method=pin`);
+  await snap(emp, "02-sign-in-pin");
+});
+
+await step("pages behind sign-in send you back to it", async () => {
+  const guest = await newPage("guest");
+  await guest.goto(`${BASE}/stalls`);
+  await guest.waitForURL(`${BASE}/enter`);
+  await guest.goto(`${BASE}/enter/verify`);
+  await guest.waitForURL(`${BASE}/enter?error=expired`);
+  await guest.goto(`${BASE}/enter/register`);
+  await guest.waitForURL(`${BASE}/enter?error=regexpired`);
+  check((await alertText(guest)).includes("verification timed out"), "no message for a missing registration");
+  await guest.goto(`${BASE}/enter/new-pin`);
+  await guest.waitForURL(`${BASE}/enter?reset=1&error=reauth`);
+  return "/stalls, /enter/verify, /enter/register and /enter/new-pin all redirect";
+});
+
+await step("a number that is not an Indian mobile is refused", async () => {
+  await emp.goto(`${BASE}/enter`);
+  await emp.fill("#phone", "1234567890");
+  await emp.getByRole("button", { name: "Send code" }).click();
+  await emp.waitForURL(/error=phone/);
+  const text = await alertText(emp);
+  check(text.includes("10-digit Indian mobile number"), `unexpected message: ${text}`);
+  check((await emp.inputValue("#phone")) === "1234567890", "typed number was replaced after the refusal");
+});
+
+await step("a new number gets a code (demo inbox shows it)", async () => {
+  user.code = await requestCode(emp, user.phone);
+  const main = await emp.locator("main").innerText();
+  check(main.includes(masked(user.phone)), "masked number not shown");
+  check(!main.includes(user.phone), "full number shown on the verify page");
+  await snap(emp, "03-verify-code");
+  return `code ${user.code} for ${masked(user.phone)}`;
+});
+
+await step("a wrong code is refused and the tries count down", async () => {
+  const wrong = String((Number(user.code) + 1) % 1_000_000).padStart(6, "0");
+  await submitCode(emp, wrong);
+  await emp.waitForURL(/error=wrong/);
+  check((await alertText(emp)).includes("That code is not right"), "no wrong-code message");
+  check((await emp.locator("main").innerText()).includes("4 tries left"), "tries left not shown");
+});
+
+await step("the right code opens registration with the verified number", async () => {
+  await submitCode(emp, user.code);
+  await emp.waitForURL(`${BASE}/enter/register`);
+  check((await emp.inputValue("#username")) === spaced(user.phone), "verified number not shown");
+  check((await emp.context().cookies()).every((c) => c.name !== "iwf_otp"), "code ticket cookie left behind");
+});
+
+await step("weak PINs are refused and typed details are kept", async () => {
+  await submitRegistration(emp, { name: user.name, employeeId: user.employeeId.toLowerCase(), pin: "1234" });
+  await emp.waitForURL(/error=pinweak/);
+  check((await alertText(emp)).includes("too easy to guess"), "no weak-PIN message");
+  check((await emp.inputValue("#name")) === user.name, "name was not kept");
+  check((await emp.inputValue("#employeeId")) === user.employeeId, "employee ID was not kept (or not upper-cased)");
+  check((await emp.inputValue("#pin")) === "", "PIN was echoed back");
+  await snap(emp, "04-register-weak-pin");
+});
+
+await step("a PIN matching the end of the number, and mismatched PINs, are refused", async () => {
+  await submitRegistration(emp, { name: user.name, employeeId: user.employeeId, pin: user.phone.slice(-4) });
+  await emp.waitForURL(/error=pinweak/);
+  await submitRegistration(emp, { name: user.name, employeeId: user.employeeId, pin, confirm: "5173" });
+  await emp.waitForURL(/error=pinmatch/);
+  check((await alertText(emp)).includes("do not match"), "no mismatch message");
+});
+
+await step("an employee ID registered to another number is refused", async () => {
+  await submitRegistration(emp, { name: user.name, employeeId: "HPE-48219", pin });
+  await emp.waitForURL(/error=idtaken/);
+  check((await alertText(emp)).includes("already registered"), "no duplicate-ID message");
+});
+
+await step("registration signs you in", async () => {
+  await submitRegistration(emp, { name: user.name, employeeId: user.employeeId, pin });
+  await emp.waitForURL(`${BASE}/stalls`);
+  check((await emp.locator("header").innerText()).includes(user.name), "name missing from the header");
+  const cookies = await emp.context().cookies();
+  const session = cookies.find((c) => c.name === "iwf_employee");
+  check(session?.httpOnly && session.sameSite === "Lax", "session cookie is not HttpOnly + SameSite=Lax");
+  check(cookies.every((c) => c.name !== "iwf_reg"), "registration ticket cookie left behind");
+  return `${user.name} · ${user.employeeId}`;
+});
+
+await step("orders page shows the account and a Change PIN link", async () => {
+  await emp.goto(`${BASE}/orders`);
+  const main = await emp.locator("main").innerText();
+  check(main.includes(user.employeeId) && main.includes(masked(user.phone)), "account line missing");
+  check((await emp.getByRole("link", { name: "Change PIN" }).count()) === 1, "Change PIN link missing");
+});
+
+await step("sign out, then sign in with mobile number and PIN", async () => {
+  await signOut(emp);
+  await pinSignIn(emp, spaced(user.phone), pin);
+  await emp.waitForURL(`${BASE}/stalls`);
+});
+
+await step("sign in with employee ID (any case) and PIN", async () => {
+  await signOut(emp);
+  await pinSignIn(emp, user.employeeId.toLowerCase(), pin);
+  await emp.waitForURL(`${BASE}/stalls`);
+});
+
+await step("an unknown number gets the same answer as a wrong PIN", async () => {
+  await signOut(emp);
+  await pinSignIn(emp, randomPhone(), pin);
+  await emp.waitForURL(/error=credentials/);
+  const unknown = await alertText(emp);
+  await pinSignIn(emp, user.phone, "8642");
+  await emp.waitForURL(/error=credentials/);
+  const wrong = await alertText(emp);
+  check(unknown === wrong, `messages differ: "${unknown}" vs "${wrong}"`);
+  return `"${wrong}"`;
+});
+
+await step("five wrong PINs in a row lock PIN sign-in", async () => {
+  await pinSignIn(emp, user.phone, pin);
+  await emp.waitForURL(`${BASE}/stalls`);
+  await signOut(emp);
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    await pinSignIn(emp, user.phone, "8642");
+    await emp.waitForURL(attempt < 5 ? /error=credentials/ : /error=locked/);
+  }
+  await pinSignIn(emp, user.phone, pin);
+  await emp.waitForURL(/error=locked/);
+  check((await alertText(emp)).includes("Sign in with a one-time code"), "lock message does not explain unlocking");
+  check((await emp.inputValue("#identifier")) === user.phone, "typed number was replaced after the refusal");
+  check((await emp.inputValue("#pin")) === "", "PIN was echoed back");
+  await snap(emp, "05-pin-locked");
+  return "even the right PIN is refused while locked";
+});
+
+await step("a code sign-in lifts the PIN lock", async () => {
+  const code = await requestCode(emp, user.phone);
+  await submitCode(emp, code);
+  await emp.waitForURL(`${BASE}/stalls`);
+  await signOut(emp);
+  await pinSignIn(emp, user.phone, pin);
+  await emp.waitForURL(`${BASE}/stalls`);
+});
+
+await step("changing a PIN needs a fresh code, not just a PIN session", async () => {
+  await emp.goto(`${BASE}/enter/new-pin`);
+  await emp.waitForURL(`${BASE}/enter?reset=1&error=reauth`);
+  check((await alertText(emp)).includes("fresh code"), "no re-verification message");
+  check((await emp.inputValue("#phone")) === user.phone, "own number not pre-filled for the reset");
+});
+
+await step("five wrong codes use the code up", async () => {
+  const page = await newPage("exhaust");
+  const target = randomPhone();
+  const code = await requestCode(page, target);
+  const wrong = String((Number(code) + 7) % 1_000_000).padStart(6, "0");
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    await submitCode(page, wrong);
+    await page.waitForURL(attempt < 5 ? /error=wrong/ : /error=exhausted/);
+  }
+  const main = await page.locator("main").innerText();
+  check(main.includes("Too many wrong codes"), "no exhausted message");
+  check((await page.locator("#code").count()) === 0, "code field still offered");
+  check(!main.includes(code), "used-up code still shown in the demo inbox");
+  await page.context().close();
+});
+
+await step("resend waits 30 seconds, then replaces the code", async () => {
+  const page = await newPage("resend");
+  const target = randomPhone();
+  const first = await requestCode(page, target);
+  const resend = page.getByRole("button", { name: /Resend code/ });
+  check(await resend.isDisabled(), "resend is enabled straight away");
+  check(/Resend code in \d+s/.test(await resend.innerText()), "no countdown on the resend button");
+  await page.getByRole("button", { name: "Resend code", exact: true }).waitFor({ timeout: 40_000 });
+  await page.getByRole("button", { name: "Resend code", exact: true }).click();
+  await page.waitForURL(`${BASE}/enter/verify?sent=1`);
+  lastCodeAt.set(target, Date.now());
+  const second = await inboxCode(page);
+  check((await page.locator("main [role='status']").innerText()).includes("New code sent"), "no resend notice");
+  if (first !== second) {
+    await submitCode(page, first);
+    await page.waitForURL(/error=wrong/);
+  }
+  await submitCode(page, second);
+  await page.waitForURL(`${BASE}/enter/register`);
+  await page.context().close();
+  return first === second ? "codes matched by chance" : "old code refused, new code accepted";
+});
+
+await step("forgot PIN: a code sets a new PIN and signs out other devices", async () => {
+  const other = await newPage("other-device");
+  await pinSignIn(other, user.phone, pin);
+  await other.waitForURL(`${BASE}/stalls`);
+
+  const code = await requestCode(emp, user.phone, "/enter?reset=1");
+  await submitCode(emp, code);
+  await emp.waitForURL(`${BASE}/enter/new-pin`);
+  await emp.fill("#pin", "1111");
+  await emp.fill("#confirmPin", "1111");
+  await emp.getByRole("button", { name: "Save PIN" }).click();
+  await emp.waitForURL(/error=pinweak/);
+  await emp.fill("#pin", nextPin);
+  await emp.fill("#confirmPin", nextPin);
+  await emp.getByRole("button", { name: "Save PIN" }).click();
+  await emp.waitForURL(`${BASE}/enter/new-pin?saved=1`);
+  check((await emp.locator("main h1").innerText()).includes("PIN updated"), "no confirmation");
+  await snap(emp, "06-pin-updated");
+
+  await other.goto(`${BASE}/stalls`);
+  await other.waitForURL(`${BASE}/enter`);
+  await emp.goto(`${BASE}/stalls`);
+  check(emp.url() === `${BASE}/stalls`, "this device was signed out too");
+
+  const fresh = await newPage("pin-check");
+  await pinSignIn(fresh, user.phone, pin);
+  await fresh.waitForURL(/error=credentials/);
+  await pinSignIn(fresh, user.phone, nextPin);
+  await fresh.waitForURL(`${BASE}/stalls`);
+  pin = nextPin;
+  await other.context().close();
+  await fresh.context().close();
+  return "other device signed out; old PIN refused; new PIN works";
+});
+
+let token = "";
+await step("order from a stall and get a QR token", async () => {
+  await emp.goto(`${BASE}/stalls/momos`, { waitUntil: "networkidle" });
+  await emp.locator("main button:has-text('Add')").first().click();
+  await emp.locator("header button:has-text('Bag')").click();
+  await emp.locator("[data-slot='sheet-content'] a:has-text('Choose pickup time')").click();
+  await emp.waitForURL(`${BASE}/checkout`);
+  await emp.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
+  await emp.locator("main button:has-text('Pay ₹')").click();
+  await emp.waitForURL(/\/orders\/[^/]+$/);
+  token = (await emp.locator("main").innerText()).match(/IWF-\d{4}/)?.[0] ?? "";
+  check(token && (await emp.locator("main img[alt*='QR']").count()) === 1, "token or QR missing");
+  return token;
+});
+
+await step("vendor queue sees the order and the ticket updates live", async () => {
+  const vendor = await newPage("vendor");
+  await vendor.goto(`${BASE}/vendor/login`);
+  await vendor.selectOption("select[name='stallId']", "momos");
+  await vendor.fill("input[name='pin']", VENDOR_PIN);
+  await vendor.getByRole("button", { name: "Open kitchen queue" }).click();
+  await vendor.waitForURL(`${BASE}/vendor`);
+  const card = vendor.locator("main li", { hasText: token });
+  await card.waitFor({ timeout: 8000 });
+  check((await card.innerText()).includes(user.name), "order card does not show the registered name");
+  await card.getByRole("button", { name: "Start preparing" }).click();
+  await card.getByRole("button", { name: "Mark ready" }).click();
+  await emp.waitForFunction(
+    () => document.querySelector("main")?.innerText.includes("Ready for pickup"),
+    null,
+    { timeout: 12_000 },
+  );
+  await vendor.context().close();
+  return `${token} for ${user.name} flipped to "Ready for pickup"`;
+});
+
+await step("a tampered session cookie is refused", async () => {
+  const real = (await emp.context().cookies()).find((c) => c.name === "iwf_employee");
+  const [body, signature] = real.value.split(".");
+  const flipped = body.slice(0, 10) + (body[10] === "A" ? "B" : "A") + body.slice(11);
+  const context = await browser.newContext();
+  await context.addCookies([{ name: "iwf_employee", value: `${flipped}.${signature}`, url: BASE }]);
+  const page = await context.newPage();
+  await page.goto(`${BASE}/stalls`);
+  check(page.url() === `${BASE}/enter`, `landed on ${page.url()}`);
+  await context.close();
+});
+
+await step("sign-in screens fit a phone screen", async () => {
+  const mobile = await newPage("mobile", { width: 390, height: 844 });
+  const overflow = () => document.documentElement.scrollWidth - window.innerWidth;
+  await mobile.goto(`${BASE}/enter`);
+  check((await mobile.evaluate(overflow)) <= 0, "sign-in page scrolls sideways");
+  await snap(mobile, "07-mobile-sign-in");
+  await requestCode(mobile, randomPhone());
+  check((await mobile.evaluate(overflow)) <= 0, "verify page scrolls sideways");
+  await snap(mobile, "08-mobile-verify");
+  await submitCode(mobile, await inboxCode(mobile));
+  await mobile.waitForURL(`${BASE}/enter/register`);
+  check((await mobile.evaluate(overflow)) <= 0, "register page scrolls sideways");
+  await snap(mobile, "09-mobile-register");
+  await mobile.context().close();
+});
+
+await step("no console or page errors", async () => {
+  check(pageErrors.length === 0, pageErrors.slice(0, 3).join(" || "));
+});
+
+await browser.close();
+const passed = results.filter(Boolean).length;
+console.log(`\n${passed}/${results.length} checks passed`);
+process.exitCode = passed === results.length ? 0 : 1;

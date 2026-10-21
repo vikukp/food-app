@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Stall {
+  id          String     @id
+  name        String
+  cuisine     String
+  description String
+  location    String
+  openTime    String
+  closeTime   String
+  vegOnly     Boolean    @default(false)
+  busyLevel   String
+  vendorPinHash String
+  accent      String
+  items       MenuItem[]
+  orders      Order[]
+}
+
+model MenuItem {
+  id          String      @id
+  stallId     String
+  stall       Stall       @relation(fields: [stallId], references: [id], onDelete: Cascade)
+  name        String
+  description String
+  priceInr    Int
+  offerPriceInr Int?
+  offerLabel  String?
+  veg         Boolean
+  category    String
+  available   Boolean     @default(true)
+  archived    Boolean     @default(false)
+  orderItems  OrderItem[]
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  token         String      @unique
+  employeeId    String
+  employeeName  String
+  stallId       String
+  stall         Stall       @relation(fields: [stallId], references: [id])
+  status        String
+  pickupSlot    String
+  paymentMethod String
+  paymentRef    String
+  totalInr      Int
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  items         OrderItem[]
+
+  @@index([employeeId])
+  @@index([stallId, status])
+}
+
+model OrderItem {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+  name       String
+  qty        Int
+  priceInr   Int
+  veg        Boolean
+}
+
+model Employee {
+  id             String    @id @default(cuid())
+  employeeId     String    @unique
+  name           String
+  // E.164, e.g. +919845012345
+  phone          String    @unique
+  pinHash        String
+  // Five wrong PINs in a row lock PIN sign-in until the employee signs in with a code.
+  pinFailedCount Int       @default(0)
+  // Bumped on PIN reset; sessions carrying an older value stop working.
+  sessionVersion Int       @default(0)
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model OtpChallenge {
+  id         String    @id
+  phone      String
+  purpose    String
+  codeHash   String
+  // Only set when SMS_PROVIDER is demo, so the code can be shown on screen.
+  demoCode   String?
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([phone, createdAt])
+  @@index([createdAt])
+}

@@ -1,0 +1,16 @@
+{
+  "name": "HPE IWF Food Court",
+  "short_name": "IWF Food",
+  "description": "Skip the afternoon line at HPE IWF Campus food court.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f1ea",
+  "theme_color": "#0b3d32",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
