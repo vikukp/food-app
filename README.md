@@ -17,14 +17,24 @@ Open [http://127.0.0.1:43123](http://127.0.0.1:43123).
 
 The first `dev` / `build` run generates Prisma Client, creates a local SQLite database, and seeds stalls.
 
-For a demo over a tunnel or port-forward, prefer the production server: it ships about a tenth of the JavaScript and has no dev-only HMR socket or cross-origin checks.
+### Demo mode
+
+`DEMO_MODE=1` turns on the demo conveniences: sign-in codes shown on screen instead of texted, one shared counter PIN (`1234`, or `DEMO_VENDOR_PIN`) on the stall login page, and the seeded demo employee. `npm run dev` writes `DEMO_MODE=1` into `.env.local` the first time, unless `DEMO_MODE` is already set somewhere.
+
+Demo mode is **off** unless set, so a production server that forgets a setting fails closed: codes are refused until an SMS provider is configured (PIN sign-in still works), and each new stall gets its own random counter PIN, printed once by the seed.
+
+For a demo over a tunnel or port-forward, prefer the production server: it ships about a tenth of the JavaScript and has no dev-only HMR socket or cross-origin checks. Make sure `.env.local` has `DEMO_MODE=1` (running `npm run dev` once does this).
 
 ```bash
 npm run build
 npm start
 ```
 
+`npm start` runs `server.mjs`, which is `next start` plus a trusted client address for rate limits (see Security). `PORT` and `HOST` override `43123` and `0.0.0.0`.
+
 ## Demo logins
+
+With `DEMO_MODE=1`:
 
 **Employee**
 
@@ -52,7 +62,7 @@ npm start
 - **Returning:** sign in with a one-time code, or with mobile number (or employee ID) and PIN.
 - **Forgot PIN / change PIN:** **Forgot PIN?** on the PIN tab, or **Change PIN** on the orders page. Both send a code to the registered number before a new PIN can be set. Saving a new PIN signs out every other device.
 - Codes last 5 minutes and allow 5 tries. A new code replaces the previous one. Each number can get one code every 30 seconds and 5 an hour.
-- Easy PINs (repeats like `1111`, runs like `1234`, common picks, the end of the mobile number) are refused. Five wrong PINs in a row lock PIN sign-in until the employee signs in with a code.
+- Easy PINs (repeats like `1111`, runs like `1234`, common picks, the end of the mobile number) are refused. Five wrong PINs within 30 minutes lock PIN sign-in for the rest of that window, or until the employee signs in with a code.
 
 ### SMS provider
 
@@ -60,7 +70,7 @@ npm start
 
 | Value | Behaviour |
 | --- | --- |
-| unset or `demo` | No SMS. The code is shown on the verify screen and logged to the server console. Anyone can sign in as any number, so use this only for demos. |
+| unset or `demo` | With `DEMO_MODE=1`: no SMS; the code is shown on the verify screen and logged to the server console. Anyone can sign in as any number, so use this only for demos. Without `DEMO_MODE=1`: codes are refused and the sign-in page offers PIN sign-in only. |
 | `twilio` | Sends through Twilio's Messages API. Needs `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM` or `TWILIO_MESSAGING_SERVICE_SID`. `TWILIO_API_BASE` overrides the API host (regional edge or a test stub). |
 
 Any other value, missing Twilio credentials, an HTTP error or a 10-second timeout fails closed: no code is issued and the employee is asked to try again or use their PIN. `OTP_DAILY_LIMIT` (default 2000) caps texts per rolling 24 hours across the whole app.
@@ -95,12 +105,12 @@ Stall hours are campus time (IST). Most stalls serve lunch through the evening, 
 - QR payloads carry an HMAC so a counter scanner can reject fabricated codes (`src/lib/qr.ts`).
 - Every response carries a nonce-based Content-Security-Policy, `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, and HSTS behind TLS. `X-Powered-By` is off.
 - All order input is validated server-side and prices are always taken from the stall's catalogue, never from the client.
-- The phone number is verified, but the name and employee ID typed at registration are not checked against HR. Before real use, connect registration to the HR directory or HPE SSO, and remove the seeded demo employee and stall PINs.
-- Per-network limits use the first `X-Forwarded-For` address, which is only trustworthy behind a proxy that sets it. In-process rate limits are fine for one server; move them to Redis if you scale out.
+- The phone number is verified, but the name and employee ID typed at registration are not checked against HR. Before real use, connect registration to the HR directory or HPE SSO. If the database was ever seeded in demo mode, delete the demo employee and change every stall PIN (the seed warns about the former).
+- Per-network limits key on the client address. `server.mjs` works it out from the socket and `X-Forwarded-For`, trusting only `TRUST_PROXY_HOPS` proxies (default `0`: browsers connect directly and any `X-Forwarded-For` they send is ignored). Behind one reverse proxy or load balancer, set `TRUST_PROXY_HOPS=1`. `next dev` passes the header through as sent, so this only holds for `npm start`. In-process rate limits are fine for one server; move them to Redis if you scale out.
 
 ## Tests
 
-With the app running in demo SMS mode (`npm run build && npm start`), run the browser suite in another terminal:
+With the app running in demo mode (`DEMO_MODE=1`, then `npm run build && npm start`), run the browser suite in another terminal:
 
 ```bash
 npm run test:e2e
@@ -112,4 +122,4 @@ It uses your installed Google Chrome (set `CHROME_PATH` for another Chromium bin
 
 Next.js (App Router), TypeScript, Tailwind, shadcn/ui, Prisma + SQLite.
 
-Payments are mocked. There is no HPE SSO and no live Pluxee or UPI gateway; SMS runs in demo mode unless a provider is configured.
+Payments are mocked. There is no HPE SSO and no live Pluxee or UPI gateway; SMS needs a provider, or `DEMO_MODE=1` for on-screen codes.

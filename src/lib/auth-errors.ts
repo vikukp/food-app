@@ -13,7 +13,7 @@ export const EMPLOYEE_LOGIN_ERRORS: Record<string, string> = {
   exhausted: "Too many wrong codes. Ask for a new one.",
   identifier: "Enter your mobile number or employee ID.",
   credentials: "That mobile number or employee ID and PIN do not match.",
-  locked: "PIN sign-in is locked after 5 wrong tries. Sign in with a one-time code to unlock it.",
+  locked: "PIN sign-in is locked for 30 minutes after 5 wrong tries. Sign in with a one-time code to unlock it now.",
   regexpired: "Your verification timed out. Confirm your mobile number again.",
   name: "Enter the name on your badge (letters, spaces, dots or hyphens).",
   id: "Enter a valid employee ID, for example HPE-48219.",

@@ -34,6 +34,9 @@ export function clearBucket(key: string) {
   buckets.delete(key);
 }
 
+// server.mjs rewrites X-Forwarded-For to the one address it trusts (see
+// TRUST_PROXY_HOPS), so the first entry is the client. Under `next dev` the
+// header is passed through as sent, which is fine for local work only.
 export async function clientIp() {
   const h = await headers();
   const forwarded = h.get("x-forwarded-for");

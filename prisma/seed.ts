@@ -1,11 +1,29 @@
+import { randomInt } from "node:crypto";
+import { loadEnvConfig } from "@next/env";
 import { PrismaClient } from "@prisma/client";
-import { DEMO_EMPLOYEE } from "../src/lib/demo";
+import { DEMO_EMPLOYEE, demoVendorPin } from "../src/lib/demo";
+import { demoMode } from "../src/lib/mode";
 import { normalizeIndianMobile } from "../src/lib/phone";
 import { hashPin } from "../src/lib/pin";
 
-const DEMO_VENDOR_PIN = process.env.DEMO_VENDOR_PIN ?? "1234";
+// Prisma only loads .env; read the same files the app does (.env.local etc.).
+loadEnvConfig(process.cwd());
+
+// Demo stalls share one known PIN. Outside demo mode each new stall gets its own
+// random PIN, printed once below, unless DEMO_VENDOR_PIN is set explicitly.
+function newStallPin() {
+  if (demoMode() || process.env.DEMO_VENDOR_PIN) return demoVendorPin();
+  return String(randomInt(100000, 1000000));
+}
+const issuedPins: { stall: string; pin: string }[] = [];
 
 const prisma = new PrismaClient();
+
+function issuedPin(stall: string) {
+  const pin = newStallPin();
+  issuedPins.push({ stall, pin });
+  return pin;
+}
 
 type ItemSeed = {
   slug: string;
@@ -462,7 +480,7 @@ async function main() {
           closeTime: stall.closeTime,
           vegOnly: stall.vegOnly,
           busyLevel: stall.busyLevel,
-          vendorPinHash: hashPin(DEMO_VENDOR_PIN),
+          vendorPinHash: hashPin(issuedPin(stall.name)),
           accent: stall.accent,
         },
       });
@@ -494,7 +512,8 @@ async function main() {
     where: { OR: [{ phone: demoPhone }, { employeeId: DEMO_EMPLOYEE.employeeId }] },
     select: { id: true },
   });
-  if (!demoExists) {
+  const addDemo = demoMode() && !demoExists;
+  if (addDemo) {
     await prisma.employee.create({
       data: {
         employeeId: DEMO_EMPLOYEE.employeeId,
@@ -507,8 +526,15 @@ async function main() {
 
   console.log(
     `Seed complete: ${stalls.length} stalls known, ${createdStalls} created, ${createdItems} menu items added` +
-      `${demoExists ? "" : ", demo employee added"}.`,
+      `${addDemo ? ", demo employee added" : ""}.`,
   );
+  if (demoExists && !demoMode()) {
+    console.warn(`Warning: demo employee ${DEMO_EMPLOYEE.employeeId} exists but DEMO_MODE is off. Delete it before real use.`);
+  }
+  if (issuedPins.length && !demoMode() && !process.env.DEMO_VENDOR_PIN) {
+    console.log("Counter PINs for new stalls (shown once; vendors can change them under Menu):");
+    for (const { stall, pin } of issuedPins) console.log(`  ${stall.padEnd(28)} ${pin}`);
+  }
 }
 
 main()

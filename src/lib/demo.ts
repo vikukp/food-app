@@ -5,7 +5,10 @@ export const DEMO_EMPLOYEE = {
   pin: "4826",
 };
 
-export const DEMO_VENDOR_PIN = "1234";
+// PIN every seeded stall starts with in demo mode. The seed reads the same variable.
+export function demoVendorPin() {
+  return process.env.DEMO_VENDOR_PIN || "1234";
+}
 
 export const EMPLOYEE_COOKIE = "iwf_employee";
 export const VENDOR_COOKIE = "iwf_vendor";
