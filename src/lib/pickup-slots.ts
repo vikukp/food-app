@@ -1,19 +1,24 @@
 import { campusMinutesNow, crossesMidnight, formatHm, isAllDay, parseHm } from "@/lib/hours";
 
 const SLOT_MINUTES = 15;
-const KITCHEN_LEAD_MINUTES = 10;
+// Earliest pickup is this far out, or the kitchen's current wait if longer.
+export const KITCHEN_LEAD_MINUTES = 10;
 const BOOKING_HORIZON_MINUTES = 180;
 const DAY_MINUTES = 24 * 60;
 
 export type PickupSlot = {
   value: string;
   label: string;
+  // Set by the checkout page from today's bookings.
+  full?: boolean;
+  left?: number;
 };
 
 export function getPickupSlots(
   openTime: string,
   closeTime: string,
   date = new Date(),
+  leadMinutes = KITCHEN_LEAD_MINUTES,
 ): PickupSlot[] {
   let now = campusMinutesNow(date);
   const allDay = isAllDay(openTime, closeTime);
@@ -27,7 +32,7 @@ export function getPickupSlots(
   }
 
   const first =
-    Math.ceil(Math.max(now + KITCHEN_LEAD_MINUTES, open) / SLOT_MINUTES) * SLOT_MINUTES;
+    Math.ceil(Math.max(now + Math.max(KITCHEN_LEAD_MINUTES, leadMinutes), open) / SLOT_MINUTES) * SLOT_MINUTES;
   const last = Math.min(close - 1, Math.max(now, open) + BOOKING_HORIZON_MINUTES);
 
   const slots: PickupSlot[] = [];
@@ -43,6 +48,7 @@ export function isValidPickupSlot(
   openTime: string,
   closeTime: string,
   date = new Date(),
+  leadMinutes = KITCHEN_LEAD_MINUTES,
 ) {
-  return getPickupSlots(openTime, closeTime, date).some((slot) => slot.value === value);
+  return getPickupSlots(openTime, closeTime, date, leadMinutes).some((slot) => slot.value === value);
 }

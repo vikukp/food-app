@@ -1,7 +1,7 @@
 import { CartButton } from "@/components/cart-sheet";
 import { CheckoutForm, type CheckoutStall } from "@/components/checkout-form";
 import { SiteHeader } from "@/components/site-header";
-import { getPickupSlots } from "@/lib/pickup-slots";
+import { slotsWithRoom } from "@/lib/stall-load";
 import { prisma } from "@/lib/prisma";
 import { getEmployeeSession } from "@/lib/session";
 
@@ -10,8 +10,17 @@ export const metadata = { title: "Checkout" };
 export default async function CheckoutPage() {
   const session = await getEmployeeSession();
   const stalls = await prisma.stall.findMany({
-    select: { id: true, name: true, openTime: true, closeTime: true, paused: true },
+    select: {
+      id: true,
+      name: true,
+      openTime: true,
+      closeTime: true,
+      paused: true,
+      prepMinutes: true,
+      slotCapacity: true,
+    },
   });
+  const slots = await slotsWithRoom(stalls);
   const stallsById: Record<string, CheckoutStall> = Object.fromEntries(
     stalls.map((stall) => [
       stall.id,
@@ -20,7 +29,7 @@ export default async function CheckoutPage() {
         openTime: stall.openTime,
         closeTime: stall.closeTime,
         paused: stall.paused,
-        slots: stall.paused ? [] : getPickupSlots(stall.openTime, stall.closeTime),
+        slots: stall.paused ? [] : (slots.get(stall.id) ?? []),
       },
     ]),
   );

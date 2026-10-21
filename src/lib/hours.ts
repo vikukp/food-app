@@ -80,8 +80,22 @@ export function opensLaterToday(openTime: string, date = new Date()) {
   return campusMinutesNow(date) < parseHm(openTime);
 }
 
-export function busyCopy(level: string) {
-  if (level === "busy") return "Busy";
-  if (level === "quiet") return "Short wait";
-  return "Moderate";
+// A counter cooks a few orders at once: every 3 waiting orders add one more
+// prep time. Rough on purpose; it is shown as "about".
+export function waitMinutes(activeOrders: number, prepMinutes: number) {
+  return prepMinutes * Math.ceil((activeOrders + 1) / 3);
+}
+
+// How far out the first pickup slot starts. Capped, so a mobbed counter still
+// takes bookings; slot capacity is what keeps any one slot from overfilling.
+export const MAX_PICKUP_LEAD_MINUTES = 60;
+
+export function pickupLead(activeOrders: number, prepMinutes: number) {
+  return Math.min(waitMinutes(activeOrders, prepMinutes), MAX_PICKUP_LEAD_MINUTES);
+}
+
+export function waitCopy(activeOrders: number, prepMinutes: number) {
+  const minutes = waitMinutes(activeOrders, prepMinutes);
+  const level = activeOrders < 3 ? "Short wait" : activeOrders < 9 ? "Moderate" : "Busy";
+  return `${level} · ~${minutes} min`;
 }

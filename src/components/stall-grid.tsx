@@ -6,7 +6,7 @@ import { SearchIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { busyCopy, hoursLabel } from "@/lib/hours";
+import { hoursLabel } from "@/lib/hours";
 
 export type StallCardData = {
   id: string;
@@ -15,7 +15,8 @@ export type StallCardData = {
   description: string;
   location: string;
   vegOnly: boolean;
-  busyLevel: string;
+  // e.g. "Short wait · ~10 min", from the stall's live queue.
+  wait: string;
   accent: string;
   open: boolean;
   paused: boolean;
@@ -89,7 +90,7 @@ export function StallGrid({ stalls }: { stalls: StallCardData[] }) {
                   <p className="line-clamp-2 text-sm text-muted-foreground">{stall.description}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {stall.vegOnly ? <Badge variant="outline">Pure veg</Badge> : null}
-                    <Badge variant="outline">{busyCopy(stall.busyLevel)}</Badge>
+                    {stall.open ? <Badge variant="outline">{stall.wait}</Badge> : null}
                     <Badge variant="outline">{hoursLabel(stall.openTime, stall.closeTime)}</Badge>
                   </div>
                 </CardContent>

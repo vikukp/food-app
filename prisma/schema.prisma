@@ -20,6 +20,10 @@ model Stall {
   vegOnly     Boolean    @default(false)
   // Set by the stall to stop new orders for a while (rush, out of gas, ...).
   paused      Boolean    @default(false)
+  // Orders the counter can hand over per 15-minute pickup slot; full slots are not offered.
+  slotCapacity Int       @default(12)
+  // Usual minutes from "Start preparing" to ready, for wait estimates.
+  prepMinutes Int        @default(10)
   busyLevel   String
   vendorPinHash String
   // Bumped on PIN change; vendor sessions carrying an older value stop working.
