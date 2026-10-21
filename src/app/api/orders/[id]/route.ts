@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { cancelNote, type OrderStatusUpdate } from "@/lib/order-view";
+import { cancelNote, orderTimeline, type OrderStatusUpdate } from "@/lib/order-view";
 import { statusLabel } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 import { getEmployeeSession } from "@/lib/session";
@@ -17,7 +17,17 @@ export async function GET(
   // QR image and line items come from the page render, not from every poll.
   const order = await prisma.order.findUnique({
     where: { id },
-    select: { status: true, employeeId: true, cancelledBy: true, cancelReason: true },
+    select: {
+      status: true,
+      employeeId: true,
+      cancelledBy: true,
+      cancelReason: true,
+      createdAt: true,
+      preparingAt: true,
+      readyAt: true,
+      collectedAt: true,
+      cancelledAt: true,
+    },
   });
   if (!order || order.employeeId !== session.employeeId) {
     return NextResponse.json({ error: "Order not found." }, { status: 404 });
@@ -26,6 +36,7 @@ export async function GET(
     status: order.status,
     statusLabel: statusLabel(order.status),
     cancelNote: cancelNote(order),
+    timeline: orderTimeline(order),
   };
   return NextResponse.json(update);
 }

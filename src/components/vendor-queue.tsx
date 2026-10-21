@@ -13,6 +13,8 @@ import { STALL_CANCEL_REASONS, nextStatus, stallCanCancel, statusLabel, type Ord
 import type { VendorDaySummary, VendorOrder, VendorQueueSnapshot } from "@/lib/vendor-orders";
 
 const TABS = ["active", "ready", "done"] as const;
+// Food left on the counter this long gets a nudge to call the token out.
+const UNCOLLECTED_MS = 15 * 60_000;
 
 export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
   const [orders, setOrders] = useState(initial.orders);
@@ -21,6 +23,17 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
   const [query, setQuery] = useState("");
   const [scanning, setScanning] = useState(false);
   const canScan = useCanScan();
+  // Client clock for "waiting at the counter"; null until mounted so the server render matches.
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    const first = setTimeout(tick, 0);
+    const timer = setInterval(tick, 30_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+  }, []);
   const [tab, setTab] = useState<(typeof TABS)[number]>("active");
   const [pending, startTransition] = useTransition();
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -197,6 +210,12 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
                     {statusLabel(order.status)}
                   </Badge>
                 </div>
+                {order.status === "READY" && order.readyAt && now !== null && now - Date.parse(order.readyAt) > UNCOLLECTED_MS ? (
+                  <p role="status" className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-950">
+                    Ready {Math.floor((now - Date.parse(order.readyAt)) / 60_000)} min and not collected. Call out{" "}
+                    {order.token}.
+                  </p>
+                ) : null}
                 {order.status === "CANCELLED" && order.cancelReason ? (
                   <p className="mt-1 text-xs text-muted-foreground">{order.cancelReason}</p>
                 ) : null}

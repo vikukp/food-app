@@ -58,6 +58,13 @@ export default async function VendorPage() {
           <button type="submit" className={buttonVariants({ variant: "outline" })}>
             Download CSV
           </button>
+          <Link
+            href={`/display/${stall.id}`}
+            target="_blank"
+            className={buttonVariants({ variant: "ghost", className: "ml-auto" })}
+          >
+            Open counter display (for a TV)
+          </Link>
         </form>
       </main>
     </div>

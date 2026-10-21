@@ -32,6 +32,18 @@ export function serviceDay(openTime: string, closeTime: string, date = new Date(
   return campusDate(date);
 }
 
+const campusTimeOfDay = new Intl.DateTimeFormat("en-GB", {
+  timeZone: CAMPUS_TIME_ZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+// "12:05" in campus time. Formatted on the server so the page and its poll agree.
+export function campusClockTime(date: Date) {
+  return campusTimeOfDay.format(date);
+}
+
 export function campusMinutesNow(date = new Date()) {
   const parts = campusClock.formatToParts(date);
   const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0) % 24;

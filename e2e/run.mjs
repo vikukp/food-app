@@ -442,6 +442,18 @@ await step("vendor queue sees the order and the ticket updates live", async () =
   return `${token} for ${user.name} flipped to "Ready for pickup"; stale tablet refused`;
 });
 
+await step("the counter display shows the token ready, and the ticket's timeline records it", async () => {
+  const board = await newPage("display", { width: 1280, height: 720 });
+  await board.goto(`${BASE}/display/momos`);
+  const ready = board.getByRole("region", { name: "Ready for pickup" });
+  await ready.getByText(token.replace("IWF-", ""), { exact: true }).waitFor({ timeout: 5000 });
+  check(!(await board.locator("body").innerText()).includes(user.name), "the public display shows a name");
+  await board.context().close();
+  const progress = await emp.getByRole("list", { name: "Order progress" }).innerText();
+  check(/Ready\s+\d{2}:\d{2}/.test(progress), `timeline has no ready time: ${progress.replace(/\s+/g, " ")}`);
+  return "token on the ready board; ready time on the ticket";
+});
+
 await step("changing the counter PIN signs out other tablets", async () => {
   const owner = await vendorSignIn("vendor-owner");
   const other = await vendorSignIn("vendor-other");
