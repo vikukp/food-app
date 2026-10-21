@@ -1,4 +1,4 @@
-// Browser checks against a running server in demo SMS mode:
+// Browser checks against a running server in demo mode (DEMO_MODE=1):
 //   npm run build && npm start      (in one terminal)
 //   npm run test:e2e                (in another)
 // BASE_URL, CHROME_PATH and SCREENSHOT_DIR are optional. Every run registers

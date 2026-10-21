@@ -83,8 +83,11 @@ model Employee {
   // E.164, e.g. +919845012345
   phone          String    @unique
   pinHash        String
-  // Five wrong PINs in a row lock PIN sign-in until the employee signs in with a code.
+  // Five wrong PINs within 30 minutes lock PIN sign-in until the window runs
+  // out or the employee signs in with a code.
   pinFailedCount Int       @default(0)
+  // Start of the current failure window: the first wrong PIN after a reset.
+  pinFailedAt    DateTime?
   // Bumped on PIN reset; sessions carrying an older value stop working.
   sessionVersion Int       @default(0)
   lastLoginAt    DateTime?

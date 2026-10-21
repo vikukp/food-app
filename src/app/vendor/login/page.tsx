@@ -2,7 +2,8 @@ import { SiteHeader } from "@/components/site-header";
 import { buttonVariants } from "@/components/ui/button";
 import { loginVendor } from "@/lib/actions";
 import { VENDOR_LOGIN_ERRORS, loginError } from "@/lib/auth-errors";
-import { DEMO_VENDOR_PIN } from "@/lib/demo";
+import { demoVendorPin } from "@/lib/demo";
+import { demoMode } from "@/lib/mode";
 import { prisma } from "@/lib/prisma";
 import { getVendorSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ export default async function VendorLoginPage({
   if (session) redirect("/vendor");
   const { error: code } = await searchParams;
   const error = loginError(VENDOR_LOGIN_ERRORS, code);
+  const demoPin = demoMode() ? demoVendorPin() : null;
   const stalls = await prisma.stall.findMany({
     select: { id: true, name: true },
     orderBy: { name: "asc" },
@@ -62,7 +64,7 @@ export default async function VendorLoginPage({
                 autoComplete="current-password"
                 pattern="[0-9]{4,8}"
                 maxLength={8}
-                defaultValue={DEMO_VENDOR_PIN}
+                defaultValue={demoPin ?? undefined}
                 className={fieldClass}
               />
             </div>
@@ -70,9 +72,9 @@ export default async function VendorLoginPage({
             <button type="submit" className={cn(buttonVariants(), "h-10 w-full")}>
               Open kitchen queue
             </button>
-            <p className="text-xs text-muted-foreground">
-              Demo PIN for every stall is {DEMO_VENDOR_PIN}.
-            </p>
+            {demoPin ? (
+              <p className="text-xs text-muted-foreground">Demo PIN for every stall is {demoPin}.</p>
+            ) : null}
           </form>
         </div>
       </main>

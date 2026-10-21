@@ -29,6 +29,9 @@ import {
 
 const MINUTE = 60_000;
 const MAX_PIN_FAILURES = 5;
+// Unknown numbers and real accounts use the same window, so the lockout
+// cannot tell them apart.
+const PIN_FAILURE_WINDOW_MS = 30 * MINUTE;
 
 let dummyPinHash: string | undefined;
 
@@ -56,7 +59,7 @@ function pinProblem(pin: string, confirmPin: string, phone: string) {
 async function completeCodeSignIn(employeeId: string) {
   const employee = await prisma.employee.update({
     where: { id: employeeId },
-    data: { pinFailedCount: 0, lastLoginAt: new Date() },
+    data: { pinFailedCount: 0, pinFailedAt: null, lastLoginAt: new Date() },
   });
   await startEmployeeSession(employee, "otp");
 }
@@ -177,13 +180,22 @@ export async function loginWithPin(formData: FormData) {
     // cannot be used to find out which numbers are registered.
     verifyPin(pin, (dummyPinHash ??= hashPin("0000")));
     const key = `pin-unknown:${normalizeIndianMobile(identifier) ?? identifier.toUpperCase()}`;
-    backToPinSignIn(consume(key, MAX_PIN_FAILURES - 1, 60 * MINUTE).ok ? "credentials" : "locked");
+    backToPinSignIn(consume(key, MAX_PIN_FAILURES - 1, PIN_FAILURE_WINDOW_MS).ok ? "credentials" : "locked");
   }
 
+  // A failure window that has run out starts over, lock included.
+  await prisma.employee.updateMany({
+    where: { id: employee.id, pinFailedAt: { lt: new Date(Date.now() - PIN_FAILURE_WINDOW_MS) } },
+    data: { pinFailedCount: 0, pinFailedAt: null },
+  });
   // Count the attempt before checking it, so parallel guesses cannot get past the limit.
   const claimed = await prisma.employee.updateMany({
     where: { id: employee.id, pinFailedCount: { lt: MAX_PIN_FAILURES } },
     data: { pinFailedCount: { increment: 1 } },
+  });
+  await prisma.employee.updateMany({
+    where: { id: employee.id, pinFailedAt: null, pinFailedCount: { gt: 0 } },
+    data: { pinFailedAt: new Date() },
   });
   if (claimed.count === 0) {
     // Hash anyway so a locked account answers as slowly as any other attempt.
@@ -191,12 +203,13 @@ export async function loginWithPin(formData: FormData) {
     backToPinSignIn("locked");
   }
   if (!verifyPin(pin, employee.pinHash)) {
-    backToPinSignIn(employee.pinFailedCount + 1 >= MAX_PIN_FAILURES ? "locked" : "credentials");
+    const after = await prisma.employee.findUnique({ where: { id: employee.id }, select: { pinFailedCount: true } });
+    backToPinSignIn((after?.pinFailedCount ?? MAX_PIN_FAILURES) >= MAX_PIN_FAILURES ? "locked" : "credentials");
   }
 
   const signedIn = await prisma.employee.update({
     where: { id: employee.id },
-    data: { pinFailedCount: 0, lastLoginAt: new Date() },
+    data: { pinFailedCount: 0, pinFailedAt: null, lastLoginAt: new Date() },
   });
   await startEmployeeSession(signedIn, "pin");
   redirect("/stalls");
@@ -212,7 +225,7 @@ export async function setNewPin(formData: FormData) {
   // A new session version signs out every other device that had this account open.
   const employee = await prisma.employee.update({
     where: { id: session.uid },
-    data: { pinHash: hashPin(pin), pinFailedCount: 0, sessionVersion: { increment: 1 } },
+    data: { pinHash: hashPin(pin), pinFailedCount: 0, pinFailedAt: null, sessionVersion: { increment: 1 } },
   });
   await startEmployeeSession(employee, "otp", session.authAt);
   redirect("/enter/new-pin?saved=1");

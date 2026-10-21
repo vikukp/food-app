@@ -29,6 +29,21 @@ const CartContext = createContext<CartContextValue | null>(null);
 
 let snapshot: CartState = EMPTY_CART;
 let didRead = false;
+// Each employee gets their own saved bag, so whoever signs in next on a shared
+// device starts empty. Set by the provider before anything reads the bag.
+let storageKey = CART_STORAGE_KEY;
+
+function selectOwner(owner: string) {
+  const key = `${CART_STORAGE_KEY}:${owner}`;
+  if (key !== storageKey) {
+    storageKey = key;
+    didRead = false;
+    try {
+      // Bags from before they were per employee belong to nobody in particular.
+      localStorage.removeItem(CART_STORAGE_KEY);
+    } catch {}
+  }
+}
 const listeners = new Set<() => void>();
 
 function emit() {
@@ -51,7 +66,7 @@ function isCartLine(value: unknown): value is CartLine {
 // A saved bag from an older build or a hand-edited one must not crash the header.
 function readStorage(): CartState {
   try {
-    const raw = localStorage.getItem(CART_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return EMPTY_CART;
     const parsed = JSON.parse(raw) as Partial<CartState>;
     if (typeof parsed.stallId !== "string" || typeof parsed.stallName !== "string") return EMPTY_CART;
@@ -83,7 +98,7 @@ function getServerSnapshot() {
 // Another tab paid for or changed the bag: re-read it, so this tab cannot
 // place the same order twice or overwrite the other tab's edits.
 function onStorage(event: StorageEvent) {
-  if (event.key !== null && event.key !== CART_STORAGE_KEY) return;
+  if (event.key !== null && event.key !== storageKey) return;
   didRead = false;
   emit();
 }
@@ -101,14 +116,15 @@ function writeCart(next: CartState) {
   snapshot = next;
   didRead = true;
   try {
-    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(next));
+    localStorage.setItem(storageKey, JSON.stringify(next));
   } catch {
     // Storage blocked (private mode, embedded webview, quota): keep the bag in memory for this tab.
   }
   emit();
 }
 
-export function CartProvider({ children }: { children: React.ReactNode }) {
+export function CartProvider({ owner, children }: { owner: string; children: React.ReactNode }) {
+  selectOwner(owner);
   const cart = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const hydrated = useSyncExternalStore(
     subscribe,

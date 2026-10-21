@@ -24,7 +24,8 @@ export default async function EnterPage({
 
   const usePin = method === "pin" && !resetting;
   const error = loginError(EMPLOYEE_LOGIN_ERRORS, code);
-  const demo = smsMode() === "demo";
+  const sms = smsMode();
+  const demo = sms === "demo";
   const demoPhone = formatPhone(normalizeIndianMobile(DEMO_EMPLOYEE.phone)!);
   // After a refusal, show what was typed rather than the demo number.
   const typed = error ? await readSignInDraft() : null;
@@ -47,6 +48,12 @@ export default async function EnterPage({
           <DemoSmsBanner>
             No texts are sent: the code appears on the next screen. Demo employee: {demoPhone}, PIN{" "}
             {DEMO_EMPLOYEE.pin}.
+          </DemoSmsBanner>
+        </div>
+      ) : sms === "misconfigured" ? (
+        <div className="mt-5">
+          <DemoSmsBanner title="Text codes are unavailable">
+            Sign in with your PIN for now. New employees can register once codes are back.
           </DemoSmsBanner>
         </div>
       ) : null}

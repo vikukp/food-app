@@ -1,13 +1,15 @@
+import { demoMode } from "@/lib/mode";
 import { maskPhone } from "@/lib/phone";
 
 export type SmsMode = "demo" | "twilio" | "misconfigured";
 
-// Demo mode sends nothing: the code is shown on the verify screen instead.
-// Anyone can then sign in as any number, so pick a real provider before rollout.
+// Demo mode sends nothing: the code is shown on the verify screen instead, so
+// anyone can sign in as any number. It needs DEMO_MODE=1; without it and
+// without a real provider, codes are refused rather than shown.
 export function smsMode(): SmsMode {
   const provider = (process.env.SMS_PROVIDER ?? "").trim().toLowerCase();
-  if (provider === "" || provider === "demo") return "demo";
   if (provider === "twilio") return "twilio";
+  if ((provider === "" || provider === "demo") && demoMode()) return "demo";
   return "misconfigured";
 }
 
@@ -22,7 +24,11 @@ export async function sendOtpSms(phone: string, code: string): Promise<boolean> 
     return true;
   }
   if (mode === "twilio") return sendWithTwilio(phone, otpMessage(code));
-  console.error(`[sms] SMS_PROVIDER="${process.env.SMS_PROVIDER}" is not supported; use "twilio" or "demo".`);
+  console.error(
+    process.env.SMS_PROVIDER
+      ? `[sms] SMS_PROVIDER="${process.env.SMS_PROVIDER}" is not supported here; use "twilio" (or "demo" with DEMO_MODE=1).`
+      : "[sms] No SMS provider configured: set SMS_PROVIDER=twilio, or DEMO_MODE=1 for a demo that shows codes on screen.",
+  );
   return false;
 }
 

@@ -12,5 +12,5 @@ export default async function EmployeeLayout({
   const session = await getEmployeeSession();
   if (!session) redirect("/enter");
 
-  return <CartProvider>{children}</CartProvider>;
+  return <CartProvider owner={session.uid}>{children}</CartProvider>;
 }
