@@ -17,6 +17,8 @@ export type StallCardData = {
   vegOnly: boolean;
   // e.g. "Short wait · ~10 min", from the stall's live queue.
   wait: string;
+  // "★ 4.3 (27)" once enough people have rated it, else null.
+  rating: string | null;
   accent: string;
   open: boolean;
   paused: boolean;
@@ -91,6 +93,7 @@ export function StallGrid({ stalls }: { stalls: StallCardData[] }) {
                   <div className="mt-3 flex flex-wrap gap-2">
                     {stall.vegOnly ? <Badge variant="outline">Pure veg</Badge> : null}
                     {stall.open ? <Badge variant="outline">{stall.wait}</Badge> : null}
+                    {stall.rating ? <Badge variant="outline">{stall.rating}</Badge> : null}
                     <Badge variant="outline">{hoursLabel(stall.openTime, stall.closeTime)}</Badge>
                   </div>
                 </CardContent>

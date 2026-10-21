@@ -184,7 +184,7 @@ function ItemFields({ item, categories }: { item?: CatalogueItem; categories: st
 
 function ItemCard({ item, categories }: { item: CatalogueItem; categories: string[] }) {
   return (
-    <li className={cn("rounded-xl border bg-card p-4", item.archived && "opacity-70")}>
+    <li className={cn("rounded-xl border bg-card p-4", item.archived && "border-dashed bg-muted/40")}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="flex items-center gap-2 font-medium">

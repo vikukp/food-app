@@ -8,6 +8,7 @@ export const CATALOGUE_OK: Record<string, string> = {
   pin: "Counter PIN changed. Use the new PIN next time you sign in.",
   hours: "Counter hours saved. Pickup slots follow them right away.",
   capacity: "Saved. Checkout offers slots and wait times based on these numbers.",
+  gstin: "GSTIN saved. It now shows on receipts.",
   paused: "New orders paused. Orders already placed stay in your queue.",
   resumed: "Taking orders again.",
 };
@@ -26,4 +27,5 @@ export const CATALOGUE_ERRORS: Record<string, string> = {
   pinmatch: "New PIN and confirmation do not match.",
   hours: "Enter opening and closing times like 11:30 and 15:00. They cannot be the same.",
   capacity: "Orders per slot must be 1 to 100, and prep time 2 to 90 minutes.",
+  gstin: "That GSTIN does not look right. It has 15 characters, like 29ABCDE1234F1Z5.",
 };

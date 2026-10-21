@@ -16,6 +16,7 @@ export type OrderRecord = {
   cancelledBy: string | null;
   cancelReason: string | null;
   createdAt: Date;
+  rating: number | null;
   preparingAt: Date | null;
   readyAt: Date | null;
   collectedAt: Date | null;
@@ -41,6 +42,7 @@ export type OrderView = {
   // Shown on a cancelled ticket, e.g. "An item ran out" or "You cancelled this order".
   cancelNote: string | null;
   timeline: TimelineStep[];
+  rating: number | null;
   createdAt: string;
   items: { id: string; name: string; qty: number; priceInr: number; veg: boolean }[];
   qrDataUrl: string;
@@ -99,6 +101,7 @@ export async function toOrderView(order: OrderRecord): Promise<OrderView> {
     stallLocation: order.stall.location,
     cancelNote: cancelNote(order),
     timeline: orderTimeline(order),
+    rating: order.rating,
     createdAt: order.createdAt.toISOString(),
     items: order.items,
     qrDataUrl,

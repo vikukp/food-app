@@ -540,6 +540,27 @@ await step("the counter finds a token, hands it over, and other stalls cannot", 
   return `${token} found by token and collected; another stall was refused`;
 });
 
+await step("a collected order can be rated, the stall sees it, and the receipt splits out GST", async () => {
+  await emp.goto(`${BASE}/orders`);
+  await emp.locator("main a", { hasText: token }).click();
+  await emp.waitForURL(/\/orders\/[^/]+$/);
+  const ticketUrl = emp.url();
+  await emp.getByRole("radio", { name: "2 stars" }).click();
+  await emp.getByLabel("What went wrong?", { exact: false }).fill("Momos were cold");
+  await emp.getByRole("button", { name: "Send" }).click();
+  await emp.getByText("You rated this 2 out of 5").waitFor({ timeout: 5000 });
+
+  const vendor = await vendorSignIn("vendor-feedback");
+  await vendor.goto(`${BASE}/vendor/menu`);
+  await vendor.getByText("Momos were cold").first().waitFor({ timeout: 5000 });
+  await vendor.context().close();
+
+  await emp.goto(`${ticketUrl}/receipt`);
+  const receipt = await emp.locator("main").innerText();
+  check(/CGST 2\.5%/.test(receipt) && /SGST 2\.5%/.test(receipt) && receipt.includes(token), "receipt is missing GST lines or the token");
+  return "rated 2★ with a comment; stall sees it; receipt shows CGST/SGST";
+});
+
 await step("order again refills the bag from a past order", async () => {
   await emp.goto(`${BASE}/orders`);
   await emp.locator("main a", { hasText: token }).click();

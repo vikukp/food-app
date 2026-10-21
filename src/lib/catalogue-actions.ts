@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { DIETS, parseAllergens } from "@/lib/dietary";
+import { GSTIN_PATTERN } from "@/lib/gst";
 import { hashPin, verifyPin } from "@/lib/pin";
 import { prisma } from "@/lib/prisma";
 import { consume } from "@/lib/rate-limit";
@@ -197,4 +198,12 @@ export async function updateStallCapacity(formData: FormData) {
   await prisma.stall.update({ where: { id: vendor.stallId }, data: { slotCapacity, prepMinutes } });
   revalidatePath("/stalls");
   done("capacity");
+}
+
+export async function updateStallGstin(formData: FormData) {
+  const vendor = await requireVendor();
+  const gstin = cleanText(formData.get("gstin"), 15).toUpperCase();
+  if (gstin && !GSTIN_PATTERN.test(gstin)) fail("gstin");
+  await prisma.stall.update({ where: { id: vendor.stallId }, data: { gstin: gstin || null } });
+  done("gstin");
 }
