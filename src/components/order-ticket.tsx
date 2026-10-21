@@ -89,11 +89,18 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
         return;
       }
       lastStatus.current = "CANCELLED";
+      const now = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Kolkata",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).format(new Date());
       setOrder((current) => ({
         ...current,
         status: "CANCELLED",
         statusLabel: "Cancelled",
         cancelNote: "You cancelled this order.",
+        timeline: [...current.timeline.filter((step) => step.at), { label: "Cancelled", at: now }],
       }));
       toast.success("Order cancelled. The mock payment was refunded.");
     });
@@ -141,6 +148,20 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
         <p className="mt-2 text-sm text-muted-foreground">
           Pickup {order.pickupSlot} · {order.stallName}
         </p>
+        <ol aria-label="Order progress" className="mx-auto mt-4 flex max-w-xs justify-between text-[11px]">
+          {order.timeline.map((step) => (
+            <li key={step.label} className="flex flex-1 flex-col items-center gap-1">
+              <span
+                aria-hidden
+                className={`size-2.5 rounded-full ${
+                  step.at ? (step.label === "Cancelled" ? "bg-destructive" : "bg-emerald-600") : "bg-muted ring-1 ring-border"
+                }`}
+              />
+              <span className={step.at ? "font-medium" : "text-muted-foreground"}>{step.label}</span>
+              <span className="tabular-nums text-muted-foreground">{step.at || "—"}</span>
+            </li>
+          ))}
+        </ol>
         {ready ? (
           <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
             Food is ready. Walk to {order.stallLocation} and show this token.

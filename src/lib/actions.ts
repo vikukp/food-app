@@ -258,7 +258,10 @@ export async function advanceVendorOrder(rawOrderId: unknown, rawFrom: unknown):
 
   const moved = await prisma.order.updateMany({
     where: { id: orderId, stallId: vendor.stallId, status: from },
-    data: { status: next },
+    data: {
+      status: next,
+      ...(next === "PREPARING" ? { preparingAt: new Date() } : next === "READY" ? { readyAt: new Date() } : { collectedAt: new Date() }),
+    },
   });
   if (moved.count === 0) {
     const exists = await prisma.order.count({ where: { id: orderId, stallId: vendor.stallId } });
@@ -281,7 +284,7 @@ export async function cancelOwnOrder(rawOrderId: unknown): Promise<ActionResult>
 
   const cancelled = await prisma.order.updateMany({
     where: { id: orderId, employeeId: employee.employeeId, status: "PLACED" },
-    data: { status: "CANCELLED", cancelledBy: "employee", cancelReason: null },
+    data: { status: "CANCELLED", cancelledBy: "employee", cancelReason: null, cancelledAt: new Date() },
   });
   if (cancelled.count === 0) {
     const order = await prisma.order.findFirst({
@@ -319,7 +322,7 @@ export async function cancelVendorOrder(
 
   const cancelled = await prisma.order.updateMany({
     where: { id: orderId, stallId: vendor.stallId, status: from },
-    data: { status: "CANCELLED", cancelledBy: "stall", cancelReason: reason },
+    data: { status: "CANCELLED", cancelledBy: "stall", cancelReason: reason, cancelledAt: new Date() },
   });
   if (cancelled.count === 0) {
     const exists = await prisma.order.count({ where: { id: orderId, stallId: vendor.stallId } });

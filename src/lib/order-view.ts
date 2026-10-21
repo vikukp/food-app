@@ -1,5 +1,6 @@
 import QRCode from "qrcode";
 import { buildQrPayload } from "@/lib/qr";
+import { campusClockTime } from "@/lib/hours";
 import { paymentLabel, statusLabel } from "@/lib/orders";
 
 export type OrderRecord = {
@@ -15,6 +16,10 @@ export type OrderRecord = {
   cancelledBy: string | null;
   cancelReason: string | null;
   createdAt: Date;
+  preparingAt: Date | null;
+  readyAt: Date | null;
+  collectedAt: Date | null;
+  cancelledAt: Date | null;
   stall: { name: string; location: string };
   items: { id: string; name: string; qty: number; priceInr: number; veg: boolean }[];
 };
@@ -35,12 +40,35 @@ export type OrderView = {
   stallLocation: string;
   // Shown on a cancelled ticket, e.g. "An item ran out" or "You cancelled this order".
   cancelNote: string | null;
+  timeline: TimelineStep[];
   createdAt: string;
   items: { id: string; name: string; qty: number; priceInr: number; veg: boolean }[];
   qrDataUrl: string;
 };
 
-export type OrderStatusUpdate = Pick<OrderView, "status" | "statusLabel" | "cancelNote">;
+export type TimelineStep = { label: string; at: string | null };
+
+export type OrderStatusUpdate = Pick<OrderView, "status" | "statusLabel" | "cancelNote" | "timeline">;
+
+type Stamps = Pick<OrderRecord, "status" | "createdAt" | "preparingAt" | "readyAt" | "collectedAt" | "cancelledAt">;
+
+// Placed → Preparing → Ready → Collected, each with its campus time once it
+// happened; a cancelled order ends at "Cancelled".
+export function orderTimeline(order: Stamps): TimelineStep[] {
+  const at = (date: Date | null) => (date ? campusClockTime(date) : null);
+  const steps: TimelineStep[] = [{ label: "Placed", at: at(order.createdAt) }];
+  if (order.status === "CANCELLED") {
+    if (order.preparingAt) steps.push({ label: "Preparing", at: at(order.preparingAt) });
+    steps.push({ label: "Cancelled", at: at(order.cancelledAt) ?? "" });
+    return steps;
+  }
+  steps.push(
+    { label: "Preparing", at: at(order.preparingAt) },
+    { label: "Ready", at: at(order.readyAt) },
+    { label: "Collected", at: at(order.collectedAt) },
+  );
+  return steps;
+}
 
 export function cancelNote(order: { status: string; cancelledBy: string | null; cancelReason: string | null }) {
   if (order.status !== "CANCELLED") return null;
@@ -70,6 +98,7 @@ export async function toOrderView(order: OrderRecord): Promise<OrderView> {
     stallName: order.stall.name,
     stallLocation: order.stall.location,
     cancelNote: cancelNote(order),
+    timeline: orderTimeline(order),
     createdAt: order.createdAt.toISOString(),
     items: order.items,
     qrDataUrl,

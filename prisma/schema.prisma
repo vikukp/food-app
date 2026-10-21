@@ -66,6 +66,11 @@ model Order {
   // Set when status is CANCELLED: "employee" or "stall", and why (stall only).
   cancelledBy   String?
   cancelReason  String?
+  // When each step happened, for the ticket's timeline and "waiting at the counter".
+  preparingAt   DateTime?
+  readyAt       DateTime?
+  collectedAt   DateTime?
+  cancelledAt   DateTime?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   items         OrderItem[]
