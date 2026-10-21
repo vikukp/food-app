@@ -1,21 +1,22 @@
+import { OPEN_STATUSES } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 import { toVendorOrder, vendorOrderInclude } from "@/lib/vendor-orders";
 
-// The "done" tab shows the latest collections, not the whole day.
-const RECENT_COLLECTED = 30;
+// The "done" tab shows the latest collected or cancelled orders, not the whole day.
+const RECENT_DONE = 30;
 
 export async function listVendorOrders(stallId: string) {
   const [active, collected] = await Promise.all([
     prisma.order.findMany({
-      where: { stallId, status: { not: "COLLECTED" } },
+      where: { stallId, status: { in: [...OPEN_STATUSES] } },
       include: vendorOrderInclude,
       orderBy: { createdAt: "asc" },
     }),
     prisma.order.findMany({
-      where: { stallId, status: "COLLECTED" },
+      where: { stallId, status: { notIn: [...OPEN_STATUSES] } },
       include: vendorOrderInclude,
       orderBy: { updatedAt: "desc" },
-      take: RECENT_COLLECTED,
+      take: RECENT_DONE,
     }),
   ]);
   return [...active, ...collected.reverse()].map(toVendorOrder);

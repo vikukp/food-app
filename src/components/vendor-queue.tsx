@@ -5,9 +5,9 @@ import { toast } from "sonner";
 import { VegDot } from "@/components/veg-dot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { advanceVendorOrder } from "@/lib/actions";
+import { advanceVendorOrder, cancelVendorOrder, type ActionResult } from "@/lib/actions";
 import { formatInr } from "@/lib/money";
-import { nextStatus, statusLabel, type OrderStatus } from "@/lib/orders";
+import { STALL_CANCEL_REASONS, nextStatus, stallCanCancel, statusLabel, type OrderStatus } from "@/lib/orders";
 import type { VendorOrder } from "@/lib/vendor-orders";
 
 const TABS = ["active", "ready", "done"] as const;
@@ -17,6 +17,8 @@ export function VendorQueue({ initial }: { initial: VendorOrder[] }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("active");
   const [pending, startTransition] = useTransition();
   const [loadError, setLoadError] = useState<string | null>(null);
+  // The order whose "Cancel" was tapped, so its reason picker is showing.
+  const [cancelFor, setCancelFor] = useState<string | null>(null);
   // Bumped on every local status change, so a poll that started before it
   // cannot land afterwards and bring back the old button.
   const edits = useRef(0);
@@ -48,8 +50,23 @@ export function VendorQueue({ initial }: { initial: VendorOrder[] }) {
   const visible = orders.filter((order) => {
     if (tab === "active") return order.status === "PLACED" || order.status === "PREPARING";
     if (tab === "ready") return order.status === "READY";
-    return order.status === "COLLECTED";
+    return order.status === "COLLECTED" || order.status === "CANCELLED";
   });
+
+  function change(order: VendorOrder, patch: Partial<VendorOrder>, run: () => Promise<ActionResult>, done: string) {
+    startTransition(async () => {
+      const result = await run();
+      edits.current += 1;
+      if (!result.ok) {
+        toast.error(result.error);
+        await refresh();
+        return;
+      }
+      setOrders((current) => current.map((o) => (o.id === order.id ? { ...o, ...patch } : o)));
+      setCancelFor(null);
+      toast.success(done);
+    });
+  }
 
   return (
     <div className="space-y-4">
@@ -77,7 +94,7 @@ export function VendorQueue({ initial }: { initial: VendorOrder[] }) {
               ? "No orders to cook right now."
               : tab === "ready"
                 ? "Nothing waiting on the counter."
-                : "No collected orders in this window yet."}
+                : "No collected or cancelled orders yet."}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             New employee orders appear here within a few seconds.
@@ -96,8 +113,13 @@ export function VendorQueue({ initial }: { initial: VendorOrder[] }) {
                       Pickup {order.pickupSlot} · {order.employeeName}
                     </p>
                   </div>
-                  <Badge variant="outline">{statusLabel(order.status)}</Badge>
+                  <Badge variant={order.status === "CANCELLED" ? "secondary" : "outline"}>
+                    {statusLabel(order.status)}
+                  </Badge>
                 </div>
+                {order.status === "CANCELLED" && order.cancelReason ? (
+                  <p className="mt-1 text-xs text-muted-foreground">{order.cancelReason}</p>
+                ) : null}
                 <ul className="mt-3 space-y-1 text-sm">
                   {order.items.map((item) => (
                     <li key={item.id} className="flex items-center gap-2">
@@ -112,33 +134,56 @@ export function VendorQueue({ initial }: { initial: VendorOrder[] }) {
                   <p className="text-xs text-muted-foreground">
                     {order.paymentLabel} · {formatInr(order.totalInr)}
                   </p>
-                  {next ? (
-                    <Button
-                      disabled={pending}
-                      onClick={() => {
-                        startTransition(async () => {
-                          const result = await advanceVendorOrder(order.id, order.status);
-                          edits.current += 1;
-                          if (!result.ok) {
-                            toast.error(result.error);
-                            await refresh();
-                            return;
-                          }
-                          setOrders((current) =>
-                            current.map((o) => (o.id === order.id ? { ...o, status: next } : o)),
-                          );
-                          toast.success(statusLabel(next));
-                        });
-                      }}
-                    >
-                      {next === "PREPARING"
-                        ? "Start preparing"
-                        : next === "READY"
-                          ? "Mark ready"
-                          : "Mark collected"}
-                    </Button>
-                  ) : null}
+                  <div className="flex items-center gap-2">
+                    {stallCanCancel(order.status) && cancelFor !== order.id ? (
+                      <Button variant="ghost" size="sm" disabled={pending} onClick={() => setCancelFor(order.id)}>
+                        Cancel
+                      </Button>
+                    ) : null}
+                    {next && cancelFor !== order.id ? (
+                      <Button
+                        disabled={pending}
+                        onClick={() =>
+                          change(order, { status: next }, () => advanceVendorOrder(order.id, order.status), statusLabel(next))
+                        }
+                      >
+                        {next === "PREPARING"
+                          ? "Start preparing"
+                          : next === "READY"
+                            ? "Mark ready"
+                            : "Mark collected"}
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
+                {cancelFor === order.id ? (
+                  <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+                    <p className="text-sm font-medium">Cancel {order.token}? The employee is refunded and told why:</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {STALL_CANCEL_REASONS.map((reason) => (
+                        <Button
+                          key={reason}
+                          variant="outline"
+                          size="sm"
+                          disabled={pending}
+                          onClick={() =>
+                            change(
+                              order,
+                              { status: "CANCELLED", cancelReason: reason },
+                              () => cancelVendorOrder(order.id, order.status, reason),
+                              `${order.token} cancelled`,
+                            )
+                          }
+                        >
+                          {reason}
+                        </Button>
+                      ))}
+                      <Button variant="ghost" size="sm" disabled={pending} onClick={() => setCancelFor(null)}>
+                        Keep order
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
               </li>
             );
           })}

@@ -8,6 +8,7 @@ export type VendorOrder = {
   paymentLabel: string;
   totalInr: number;
   employeeName: string;
+  cancelReason: string | null;
   createdAt: string;
   items: { id: string; name: string; qty: number; veg: boolean }[];
 };
@@ -20,6 +21,8 @@ export function toVendorOrder(order: {
   paymentMethod: string;
   totalInr: number;
   employeeName: string;
+  cancelledBy: string | null;
+  cancelReason: string | null;
   createdAt: Date;
   items: { id: string; name: string; qty: number; veg: boolean }[];
 }): VendorOrder {
@@ -31,6 +34,7 @@ export function toVendorOrder(order: {
     paymentLabel: paymentLabel(order.paymentMethod),
     totalInr: order.totalInr,
     employeeName: order.employeeName,
+    cancelReason: order.cancelledBy === "employee" ? "Cancelled by the employee" : order.cancelReason,
     createdAt: order.createdAt.toISOString(),
     items: order.items,
   };

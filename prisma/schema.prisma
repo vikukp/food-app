@@ -55,6 +55,9 @@ model Order {
   paymentMethod String
   paymentRef    String
   totalInr      Int
+  // Set when status is CANCELLED: "employee" or "stall", and why (stall only).
+  cancelledBy   String?
+  cancelReason  String?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   items         OrderItem[]

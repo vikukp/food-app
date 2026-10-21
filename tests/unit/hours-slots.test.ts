@@ -49,6 +49,21 @@ describe("pickup slots", () => {
     assert.ok(values.includes("01:00"));
   });
 
+  it("handle counters that close after midnight", () => {
+    assert.equal(hoursLabel("18:00", "02:00"), "18:00–02:00");
+    assert.equal(isStallOpen("18:00", "02:00", ist("23:30")), true);
+    assert.equal(isStallOpen("18:00", "02:00", ist("01:30")), true);
+    assert.equal(isStallOpen("18:00", "02:00", ist("02:00")), false);
+    assert.equal(isStallOpen("18:00", "02:00", ist("12:00")), false);
+    const evening = getPickupSlots("18:00", "02:00", ist("23:40")).map((s) => s.value);
+    assert.equal(evening[0], "00:00");
+    assert.equal(evening.at(-1), "01:45");
+    const late = getPickupSlots("18:00", "02:00", ist("01:20")).map((s) => s.value);
+    assert.deepEqual(late, ["01:30", "01:45"]);
+    assert.equal(getPickupSlots("18:00", "02:00", ist("16:00"))[0].value, "18:00");
+    assert.deepEqual(getPickupSlots("18:00", "02:00", ist("03:00")).length > 0, true);
+  });
+
   it("validate only offered slots", () => {
     const now = ist("12:07");
     assert.equal(isValidPickupSlot("12:30", "08:00", "22:00", now), true);

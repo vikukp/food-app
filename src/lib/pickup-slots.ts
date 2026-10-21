@@ -1,4 +1,4 @@
-import { campusMinutesNow, formatHm, isAllDay, parseHm } from "@/lib/hours";
+import { campusMinutesNow, crossesMidnight, formatHm, isAllDay, parseHm } from "@/lib/hours";
 
 const SLOT_MINUTES = 15;
 const KITCHEN_LEAD_MINUTES = 10;
@@ -15,10 +15,16 @@ export function getPickupSlots(
   closeTime: string,
   date = new Date(),
 ): PickupSlot[] {
-  const now = campusMinutesNow(date);
+  let now = campusMinutesNow(date);
   const allDay = isAllDay(openTime, closeTime);
   const open = allDay ? 0 : parseHm(openTime);
-  const close = allDay ? Number.POSITIVE_INFINITY : parseHm(closeTime);
+  let close = allDay ? Number.POSITIVE_INFINITY : parseHm(closeTime);
+  // A counter open past midnight: count its closing time on the next day, and
+  // count "now" there too when it is already after midnight.
+  if (crossesMidnight(openTime, closeTime)) {
+    close += DAY_MINUTES;
+    if (now < parseHm(closeTime)) now += DAY_MINUTES;
+  }
 
   const first =
     Math.ceil(Math.max(now + KITCHEN_LEAD_MINUTES, open) / SLOT_MINUTES) * SLOT_MINUTES;
