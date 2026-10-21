@@ -47,7 +47,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
         {children}
-        <Toaster position="top-center" />
+        {/* Below the 56px header, so a toast never hides the bag count it is about. */}
+        <Toaster position="top-center" offset={72} mobileOffset={72} />
         <ServiceWorker />
       </body>
     </html>

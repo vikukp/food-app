@@ -386,7 +386,7 @@ await step("forgot PIN: a code sets a new PIN and signs out other devices", asyn
 let token = "";
 await step("order from a stall and get a QR token", async () => {
   await emp.goto(`${BASE}/stalls/momos`, { waitUntil: "networkidle" });
-  await emp.locator("main button:has-text('Add')").first().click();
+  await addFirstItem(emp);
   await emp.locator("header button:has-text('Bag')").click();
   await emp.locator("[data-slot='sheet-content'] a:has-text('Choose pickup time')").click();
   await emp.waitForURL(`${BASE}/checkout`);
@@ -479,9 +479,17 @@ await step("changing the counter PIN signs out other tablets", async () => {
   await owner.context().close();
 });
 
+// Adds the first item on the stall page open in `page`, accepting "Start new
+// bag" if the bag holds another stall's items.
+async function addFirstItem(page) {
+  await page.locator("main button:has-text('Add')").first().click();
+  const replace = page.getByRole("button", { name: "Start new bag" });
+  if (await replace.waitFor({ timeout: 800 }).then(() => true, () => false)) await replace.click();
+}
+
 async function placeMomosOrder(page) {
   await page.goto(`${BASE}/stalls/momos`, { waitUntil: "networkidle" });
-  await page.locator("main button:has-text('Add')").first().click();
+  await addFirstItem(page);
   await page.goto(`${BASE}/checkout`);
   await page.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
   await page.locator("main button:has-text('Pay ₹')").click();
@@ -491,8 +499,8 @@ async function placeMomosOrder(page) {
 
 await step("an employee can cancel before the kitchen starts", async () => {
   const cancelToken = await placeMomosOrder(emp);
-  emp.once("dialog", (dialog) => dialog.accept());
   await emp.getByRole("button", { name: "Cancel order" }).click();
+  await emp.getByRole("button", { name: "Yes, cancel it" }).click();
   await emp.getByText("You cancelled this order.").waitFor({ timeout: 8000 });
   check((await emp.locator("main img[alt*='QR']").count()) === 0, "QR still shown on a cancelled ticket");
   await emp.reload();
@@ -673,8 +681,8 @@ await step("only food court admins see the admin screen, and PIN resets need a f
     await row.getByRole("button", { name: "Resume orders" }).click();
     await admin.getByText("Maggi & Momos is taking orders again").waitFor({ timeout: 5000 });
   }
-  admin.once("dialog", (dialog) => dialog.accept());
   await row.getByRole("button", { name: "Reset counter PIN" }).click();
+  await row.getByRole("button", { name: "Yes, reset the PIN" }).click();
   await admin.getByText("sign in again with a one-time code").first().waitFor({ timeout: 5000 });
   await admin.context().close();
   return "404 for employees; pause works; PIN reset refused without a fresh code";
@@ -692,7 +700,7 @@ await step("a full pickup slot is not offered, and the queue sets the earliest s
   try {
     await emp.goto(`${BASE}/stalls/idli`, { waitUntil: "networkidle" });
     check(/~\d+ min/.test(await emp.locator("main").innerText()), "no wait estimate on the stall page");
-    await emp.locator("main button:has-text('Add')").first().click();
+    await addFirstItem(emp);
     await emp.goto(`${BASE}/checkout`);
     await emp.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
     const first = emp.locator("main section button:not([disabled])").first();
@@ -700,7 +708,7 @@ await step("a full pickup slot is not offered, and the queue sets the earliest s
     await emp.locator("main button:has-text('Pay ₹')").click();
     await emp.waitForURL(/\/orders\/[^/]+$/);
     await emp.goto(`${BASE}/stalls/idli`, { waitUntil: "networkidle" });
-    await emp.locator("main button:has-text('Add')").first().click();
+    await addFirstItem(emp);
     await emp.goto(`${BASE}/checkout`);
     await emp.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
     const taken = emp.getByRole("button", { name: `${slot}, full` });
@@ -742,6 +750,42 @@ await step("a stall's dietary info shows on the menu and the Jain filter uses it
     await vendor.context().close();
   }
   return `${name}: kcal, Jain and allergen shown; Jain filter narrows to it`;
+});
+
+await step("the bag is never replaced without asking, and a sold-out item blocks paying", async () => {
+  // Bag something from Maggi & Momos, then tap Add at another stall.
+  await emp.goto(`${BASE}/stalls/momos`, { waitUntil: "networkidle" });
+  await addFirstItem(emp);
+  const firstName = (await emp.locator("main li").first().locator("p.font-medium").innerText()).trim();
+  await emp.goto(`${BASE}/stalls/idli`, { waitUntil: "networkidle" });
+  await emp.locator("main button:has-text('Add')").first().click();
+  await emp.getByRole("button", { name: "Keep bag" }).click();
+  await emp.goto(`${BASE}/checkout`);
+  await emp.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
+  check((await emp.locator("main aside").innerText()).includes("Maggi & Momos"), "the bag changed stall without a confirmation");
+
+  // The stall sells out of it while it sits in the bag.
+  const vendor = await vendorSignIn("vendor-soldout");
+  await vendor.goto(`${BASE}/vendor/menu`);
+  const item = vendor.locator("main li", { hasText: firstName }).first();
+  await item.getByRole("button", { name: "Mark sold out" }).click();
+  await vendor.waitForURL(/ok=soldout/);
+  try {
+    await emp.reload();
+    await emp.getByText("Sold out now").waitFor({ timeout: 8000 });
+    check(await emp.locator("main aside button:has-text('Pay ₹')").isDisabled(), "Pay is enabled with a sold-out item");
+  } finally {
+    await vendor.goto(`${BASE}/vendor/menu`);
+    await vendor.locator("main li", { hasText: firstName }).first().getByRole("button", { name: "Back on sale" }).click();
+    await vendor.waitForURL(/ok=available/);
+    await vendor.context().close();
+  }
+
+  // Search finds dishes, not only stalls.
+  await emp.goto(`${BASE}/stalls`);
+  await emp.getByLabel("Search stalls and dishes").fill(firstName.split(" ").slice(-1)[0]);
+  await emp.getByText(`Has `, { exact: false }).first().waitFor({ timeout: 5000 });
+  return `kept the bag; "${firstName}" sold out blocked Pay; dish search works`;
 });
 
 await step("a tampered session cookie is refused", async () => {

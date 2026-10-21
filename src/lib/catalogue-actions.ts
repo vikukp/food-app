@@ -15,9 +15,17 @@ const MENU_PATH = "/vendor/menu";
 const MAX_PRICE_INR = 5000;
 const MAX_ITEMS_PER_STALL = 80;
 
-function done(code: string): never {
+// `anchor` brings the page back to what was just changed instead of the top,
+// so marking things sold out at lunch does not mean scrolling down every time.
+function done(code: string, anchor?: string): never {
   revalidatePath(MENU_PATH);
-  redirect(`${MENU_PATH}?ok=${code}`);
+  redirect(`${MENU_PATH}?ok=${code}${anchor ? `#${anchor}` : ""}`);
+}
+
+// "momos" and "Momos" are one section: reuse the spelling the menu already has.
+async function canonicalCategory(stallId: string, category: string) {
+  const existing = await prisma.menuItem.findMany({ where: { stallId }, select: { category: true }, distinct: ["category"] });
+  return existing.find((row) => row.category.toLowerCase() === category.toLowerCase())?.category ?? category;
 }
 
 function fail(code: string): never {
@@ -115,15 +123,16 @@ export async function createMenuItem(formData: FormData) {
   await prisma.menuItem.create({
     data: { id, stallId: vendor.stallId, available: true, ...fields },
   });
-  done("added");
+  done("added", `item-${id}`);
 }
 
 export async function updateMenuItem(formData: FormData) {
   const vendor = await requireVendor();
   const item = await ownedItem(vendor.stallId, formData.get("itemId"));
   const fields = readItemFields(formData);
+  fields.category = await canonicalCategory(vendor.stallId, fields.category);
   await prisma.menuItem.update({ where: { id: item.id }, data: fields });
-  done("saved");
+  done("saved", `item-${item.id}`);
 }
 
 export async function setItemAvailability(formData: FormData) {
@@ -131,7 +140,7 @@ export async function setItemAvailability(formData: FormData) {
   const item = await ownedItem(vendor.stallId, formData.get("itemId"));
   const available = formData.get("available") === "1";
   await prisma.menuItem.update({ where: { id: item.id }, data: { available } });
-  done(available ? "available" : "soldout");
+  done(available ? "available" : "soldout", `item-${item.id}`);
 }
 
 export async function setItemArchived(formData: FormData) {
@@ -143,7 +152,7 @@ export async function setItemArchived(formData: FormData) {
     if (count >= MAX_ITEMS_PER_STALL) fail("full");
   }
   await prisma.menuItem.update({ where: { id: item.id }, data: { archived } });
-  done(archived ? "hidden" : "restored");
+  done(archived ? "hidden" : "restored", `item-${item.id}`);
 }
 
 export async function changeVendorPin(formData: FormData) {
@@ -165,7 +174,7 @@ export async function changeVendorPin(formData: FormData) {
     select: { sessionVersion: true },
   });
   await setVendorSession({ stallId: vendor.stallId, sessionVersion: updated.sessionVersion });
-  done("pin");
+  done("pin", "counter-pin");
 }
 
 export async function updateStallHours(formData: FormData) {
@@ -177,7 +186,7 @@ export async function updateStallHours(formData: FormData) {
   if (!SLOT_PATTERN.test(openTime) || !SLOT_PATTERN.test(closeTime) || openTime === closeTime) fail("hours");
   await prisma.stall.update({ where: { id: vendor.stallId }, data: { openTime, closeTime } });
   revalidatePath("/stalls");
-  done("hours");
+  done("hours", "counter-hours");
 }
 
 export async function setStallPaused(formData: FormData) {
@@ -186,7 +195,7 @@ export async function setStallPaused(formData: FormData) {
   await prisma.stall.update({ where: { id: vendor.stallId }, data: { paused } });
   revalidatePath("/stalls");
   revalidatePath("/vendor");
-  done(paused ? "paused" : "resumed");
+  done(paused ? "paused" : "resumed", "counter-hours");
 }
 
 export async function updateStallCapacity(formData: FormData) {
@@ -197,7 +206,7 @@ export async function updateStallCapacity(formData: FormData) {
   if (prepMinutes === null || prepMinutes < 2 || prepMinutes > 90) fail("capacity");
   await prisma.stall.update({ where: { id: vendor.stallId }, data: { slotCapacity, prepMinutes } });
   revalidatePath("/stalls");
-  done("capacity");
+  done("capacity", "counter-hours");
 }
 
 export async function updateStallGstin(formData: FormData) {
@@ -205,5 +214,5 @@ export async function updateStallGstin(formData: FormData) {
   const gstin = cleanText(formData.get("gstin"), 15).toUpperCase();
   if (gstin && !GSTIN_PATTERN.test(gstin)) fail("gstin");
   await prisma.stall.update({ where: { id: vendor.stallId }, data: { gstin: gstin || null } });
-  done("gstin");
+  done("gstin", "gstin");
 }

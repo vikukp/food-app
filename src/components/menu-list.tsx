@@ -25,6 +25,14 @@ export type MenuItemData = {
   available: boolean;
 };
 
+// Meals first; drinks, desserts and extras at the end, as on a printed menu.
+const LATER = ["side", "extra", "add-on", "addon", "drink", "beverage", "juice", "shake", "coffee", "tea", "dessert", "sweet"];
+function categoryRank(category: string) {
+  const name = category.toLowerCase();
+  const later = LATER.findIndex((word) => name.includes(word));
+  return later === -1 ? 0 : 1 + later;
+}
+
 const FILTERS = [
   { id: "all", label: "All", keep: () => true },
   { id: "veg", label: "Veg", keep: (item: MenuItemData) => item.veg },
@@ -43,14 +51,16 @@ export function MenuList({
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"]>("all");
   const keep = FILTERS.find((f) => f.id === filter)!.keep;
   const shown = items.filter(keep);
-  const categories = [...new Set(shown.map((item) => item.category))];
+  const categories = [...new Set(shown.map((item) => item.category))].sort(
+    (a, b) => categoryRank(a) - categoryRank(b) || a.localeCompare(b),
+  );
   // Only offer filters that would leave something on this menu.
   const filters = FILTERS.filter((f) => f.id === "all" || (items.some(f.keep) && !items.every(f.keep)));
 
   return (
     <div className="space-y-8 pb-24 md:pb-8">
       {filters.length > 1 ? (
-        <div role="group" aria-label="Filter the menu" className="-mb-4 flex flex-wrap gap-2">
+        <div role="group" aria-label="Filter the menu" className="flex flex-wrap gap-2">
           {filters.map((f) => (
             <button
               key={f.id}
@@ -105,23 +115,38 @@ export function MenuList({
                         variant="outline"
                         className="shrink-0"
                         onClick={() => {
-                          const { replaced } = addItem(stall, {
+                          const line = {
                             menuItemId: item.id,
                             name: item.name,
                             priceInr: effectivePrice(item),
                             veg: item.veg,
-                          });
-                          if (replaced) {
-                            toast.message("Bag reset", {
-                              description: `Items from the other stall were cleared. Now ordering from ${stall.name}.`,
+                          };
+                          const otherStall = cart.stallId && cart.stallId !== stall.id && cart.items.length;
+                          if (otherStall) {
+                            // Never empty someone's bag on one tap: ask first.
+                            const n = cart.items.reduce((sum, l) => sum + l.qty, 0);
+                            toast.warning(`Your bag has ${n} item${n > 1 ? "s" : ""} from ${cart.stallName}`, {
+                              id: "bag-replace",
+                              description: "One stall per order. Start a new bag here?",
+                              duration: 8000,
+                              action: {
+                                label: "Start new bag",
+                                onClick: () => {
+                                  addItem(stall, line);
+                                  toast.success(`${item.name} added`, { id: "bag-add", duration: 1500 });
+                                },
+                              },
+                              cancel: { label: "Keep bag", onClick: () => {} },
                             });
-                          } else {
-                            toast.success(`${item.name} added`, {
-                              id: "bag-add",
-                              description: `${qty + 1} in your bag from ${stall.name}.`,
-                              duration: 1500,
-                            });
+                            return;
                           }
+                          addItem(stall, line);
+                          const inBag = cart.items.reduce((sum, l) => sum + l.qty, 0) + 1;
+                          toast.success(`${item.name} added`, {
+                            id: "bag-add",
+                            description: `${inBag} item${inBag > 1 ? "s" : ""} in your bag from ${stall.name}.`,
+                            duration: 1500,
+                          });
                         }}
                       >
                         {qty > 0 ? `Add · ${qty}` : "Add"}

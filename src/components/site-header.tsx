@@ -42,7 +42,7 @@ export function SiteHeader({ variant, name, stallName, right }: Props) {
                   className={buttonVariants({
                     variant: "ghost",
                     size: "sm",
-                    className: "text-emerald-50 hover:bg-white/10 hover:text-white",
+                    className: "text-emerald-50 ring-1 ring-white/30 hover:bg-white/10 hover:text-white",
                   })}
                 >
                   Sign out
@@ -81,7 +81,7 @@ export function SiteHeader({ variant, name, stallName, right }: Props) {
                   className={buttonVariants({
                     variant: "ghost",
                     size: "sm",
-                    className: "text-emerald-50 hover:bg-white/10 hover:text-white",
+                    className: "text-emerald-50 ring-1 ring-white/30 hover:bg-white/10 hover:text-white",
                   })}
                 >
                   Sign out

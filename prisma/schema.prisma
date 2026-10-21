@@ -72,6 +72,8 @@ model Order {
   paymentMethod String
   paymentRef    String
   totalInr      Int
+  // Optional note for the kitchen, e.g. "less spicy".
+  note          String?
   // Set when status is CANCELLED: "employee" or "stall", and why (stall only).
   cancelledBy   String?
   cancelReason  String?

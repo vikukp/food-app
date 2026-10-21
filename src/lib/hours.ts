@@ -92,6 +92,14 @@ export function opensLaterToday(openTime: string, date = new Date()) {
   return campusMinutesNow(date) < parseHm(openTime);
 }
 
+// "in 2 h 15 min" until opening later today.
+export function opensIn(openTime: string, date = new Date()) {
+  const minutes = Math.max(0, parseHm(openTime) - campusMinutesNow(date));
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `in ${h ? `${h} h${m ? " " : ""}` : ""}${m || !h ? `${m} min` : ""}`;
+}
+
 // A counter cooks a few orders at once: every 3 waiting orders add one more
 // prep time. Rough on purpose; it is shown as "about".
 export function waitMinutes(activeOrders: number, prepMinutes: number) {

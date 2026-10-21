@@ -12,6 +12,8 @@ import { getEmployeeSession } from "@/lib/session";
 
 export const metadata = { title: "My orders" };
 
+const orderDay = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" });
+
 export default async function OrdersPage() {
   const session = await getEmployeeSession();
   const orders = session
@@ -69,7 +71,7 @@ export default async function OrdersPage() {
                     <div>
                       <p className="font-mono text-lg font-semibold">{order.token}</p>
                       <p className="text-sm text-muted-foreground">
-                        {order.stall.name} · pickup {order.pickupSlot}
+                        {order.stall.name} · {orderDay.format(order.createdAt)}, pickup {order.pickupSlot}
                       </p>
                     </div>
                     <Badge variant="outline">{statusLabel(order.status)}</Badge>

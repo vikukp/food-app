@@ -130,7 +130,13 @@ function ItemFields({ item, categories }: { item?: CatalogueItem; categories: st
         <label className={label} htmlFor={`${prefix}-diet`}>
           Food type
         </label>
-        <select id={`${prefix}-diet`} name="diet" defaultValue={item ? dietOf(item) : "veg"} className={field}>
+        {/* No default for new items: a rushed "Add" must not publish chicken with a green mark. */}
+        <select id={`${prefix}-diet`} name="diet" required defaultValue={item ? dietOf(item) : ""} className={field}>
+          {item ? null : (
+            <option value="" disabled>
+              Choose…
+            </option>
+          )}
           <option value="veg">Vegetarian</option>
           <option value="egg">Contains egg (no meat)</option>
           <option value="nonveg">Non-vegetarian</option>
@@ -184,7 +190,10 @@ function ItemFields({ item, categories }: { item?: CatalogueItem; categories: st
 
 function ItemCard({ item, categories }: { item: CatalogueItem; categories: string[] }) {
   return (
-    <li className={cn("rounded-xl border bg-card p-4", item.archived && "border-dashed bg-muted/40")}>
+    <li
+      id={`item-${item.id}`}
+      className={cn("scroll-mt-20 rounded-xl border bg-card p-4", item.archived && "border-dashed bg-muted/40")}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="flex items-center gap-2 font-medium">
@@ -255,8 +264,8 @@ export function CatalogueEditor({ items }: { items: CatalogueItem[] }) {
 
   return (
     <div className="space-y-8">
-      <section className="rounded-xl border bg-card p-4">
-        <h2 className="font-medium">Add an item</h2>
+      <details className="rounded-xl border bg-card p-4">
+        <summary className="cursor-pointer font-medium">Add an item</summary>
         <p className="mt-1 text-sm text-muted-foreground">
           New items go live immediately. Employees browsing your stall see them on their next refresh.
         </p>
@@ -268,7 +277,7 @@ export function CatalogueEditor({ items }: { items: CatalogueItem[] }) {
             </button>
           </div>
         </form>
-      </section>
+      </details>
 
       {categories
         .filter((category) => live.some((item) => item.category === category))

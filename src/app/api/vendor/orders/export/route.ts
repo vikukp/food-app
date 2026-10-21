@@ -29,7 +29,7 @@ export async function GET(request: Request) {
   });
 
   const lines = [
-    csvRow(["Token", "Placed (IST)", "Pickup", "Status", "Employee", "Employee ID", "Items", "Payment", "Payment ref", "Total (INR)", "Cancel reason"]),
+    csvRow(["Token", "Placed (IST)", "Pickup", "Status", "Employee", "Employee ID", "Items", "Payment", "Payment ref", "Total (INR)", "Cancel reason", "Note"]),
     ...orders.map((order) =>
       csvRow([
         order.token,
@@ -43,6 +43,7 @@ export async function GET(request: Request) {
         order.paymentRef,
         order.totalInr,
         order.status === "CANCELLED" ? (order.cancelledBy === "employee" ? "Cancelled by the employee" : order.cancelReason) : "",
+        order.note ?? "",
       ]),
     ),
   ];

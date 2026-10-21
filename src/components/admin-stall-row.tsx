@@ -24,6 +24,7 @@ export function AdminStallRow({ stall }: { stall: Stall }) {
   const [paused, setPaused] = useState(stall.paused);
   const [newPin, setNewPin] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [confirmReset, setConfirmReset] = useState(false);
 
   function togglePause() {
     startTransition(async () => {
@@ -35,7 +36,7 @@ export function AdminStallRow({ stall }: { stall: Stall }) {
   }
 
   function resetPin() {
-    if (!window.confirm(`Give ${stall.name} a new counter PIN? Every tablet signed in to it is signed out.`)) return;
+    setConfirmReset(false);
     startTransition(async () => {
       const result = await adminResetStallPin(stall.id);
       if (!result.ok) return void toast.error(result.error);
@@ -65,10 +66,23 @@ export function AdminStallRow({ stall }: { stall: Stall }) {
         <Button size="sm" variant="outline" disabled={pending} onClick={togglePause}>
           {paused ? "Resume orders" : "Pause orders"}
         </Button>
-        <Button size="sm" variant="outline" disabled={pending} onClick={resetPin}>
+        <Button size="sm" variant="outline" disabled={pending || confirmReset} onClick={() => setConfirmReset(true)}>
           Reset counter PIN
         </Button>
       </div>
+      {confirmReset ? (
+        <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
+          <p>Give {stall.name} a new counter PIN? Every tablet signed in to it is signed out.</p>
+          <div className="mt-2 flex gap-2">
+            <Button size="sm" variant="destructive" disabled={pending} onClick={resetPin}>
+              Yes, reset the PIN
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmReset(false)}>
+              Keep the current PIN
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {newPin ? (
         <p role="status" className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-950">
           New counter PIN for {stall.name}: <span className="font-mono text-base font-semibold">{newPin}</span>. It is

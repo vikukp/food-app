@@ -11,6 +11,7 @@ export type VendorOrder = {
   cancelReason: string | null;
   createdAt: string;
   readyAt: string | null;
+  note: string | null;
   // Set on the client for an order pulled in by "Find token" or a QR scan.
   found?: boolean;
   items: { id: string; name: string; qty: number; veg: boolean }[];
@@ -37,6 +38,7 @@ export function toVendorOrder(order: {
   cancelReason: string | null;
   createdAt: Date;
   readyAt: Date | null;
+  note: string | null;
   items: { id: string; name: string; qty: number; veg: boolean }[];
 }): VendorOrder {
   return {
@@ -50,6 +52,7 @@ export function toVendorOrder(order: {
     cancelReason: order.cancelledBy === "employee" ? "Cancelled by the employee" : order.cancelReason,
     createdAt: order.createdAt.toISOString(),
     readyAt: order.readyAt?.toISOString() ?? null,
+    note: order.note,
     items: order.items,
   };
 }

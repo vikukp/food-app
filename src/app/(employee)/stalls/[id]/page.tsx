@@ -5,7 +5,8 @@ import { MenuList } from "@/components/menu-list";
 import { SiteHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { hoursLabel, isStallOpen, opensLaterToday, waitCopy } from "@/lib/hours";
+import { VegDot } from "@/components/veg-dot";
+import { hoursLabel, isStallOpen, opensIn, opensLaterToday, waitCopy } from "@/lib/hours";
 import { ratingCopy, stallRatings } from "@/lib/ratings";
 import { activeOrderCounts } from "@/lib/stall-load";
 import { prisma } from "@/lib/prisma";
@@ -44,7 +45,7 @@ export default async function StallPage({
       <SiteHeader variant="employee" name={session?.name} right={<CartButton />} />
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
         <Button variant="ghost" size="sm" className="-ml-2 mb-3" render={<Link href="/stalls" />}>
-          All stalls
+          ← All stalls
         </Button>
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -67,11 +68,19 @@ export default async function StallPage({
             {stall.paused
               ? "This stall has paused new orders for a while. Check back soon, or pick another stall."
               : opensLaterToday(stall.openTime)
-              ? `Opens at ${stall.openTime} IST. You can bag items now and pre-book a pickup slot after opening.`
+              ? `Opens at ${stall.openTime} IST (${opensIn(stall.openTime)}). You can bag items now and pre-book a pickup slot after opening.`
               : `Closed for today. Reopens at ${stall.openTime} IST. Browse, or pick a stall that is open now.`}
           </p>
         ) : null}
-        <p className="mt-3 text-xs text-muted-foreground">
+        <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <VegDot veg /> Veg
+          </span>
+          <span className="flex items-center gap-1">
+            <VegDot veg={false} /> Non-veg (egg dishes are tagged Egg)
+          </span>
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
           Allergens are listed where the stall has added them. If you have an allergy, check with the counter
           before ordering.
         </p>

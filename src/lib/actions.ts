@@ -7,7 +7,7 @@ import { pickupLead, serviceDay } from "@/lib/hours";
 import { activeOrderCounts } from "@/lib/stall-load";
 import {
   OPEN_STATUSES,
-  STALL_CANCEL_REASONS,
+  cancelReasonsFor,
   isOrderStatus,
   nextStatus,
   randomToken,
@@ -44,6 +44,7 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 
 const MINUTE = 60_000;
 const ORDER_ID_PATTERN = /^[a-z0-9]{10,40}$/i;
+const MAX_NOTE_LENGTH = 120;
 
 export async function loginVendor(formData: FormData) {
   const ip = await clientIp();
@@ -92,6 +93,7 @@ export type PlaceOrderInput = {
   items: { menuItemId: string; qty: number }[];
   // What the bag showed; a mismatch means catalogue prices changed since the items were added.
   expectedTotalInr?: number;
+  note?: string;
 };
 
 type PlaceOrderResult =
@@ -119,12 +121,14 @@ function parseOrderInput(raw: unknown): PlaceOrderInput | null {
   if (new Set(items.map((line) => line.menuItemId)).size !== items.length) return null;
   const expectedTotalInr = raw.expectedTotalInr === undefined ? undefined : toInt(raw.expectedTotalInr);
   if (expectedTotalInr === null) return null;
+  const note = cleanText(raw.note, MAX_NOTE_LENGTH) || undefined;
   return {
     stallId,
     pickupSlot,
     paymentMethod: paymentMethod as PlaceOrderInput["paymentMethod"],
     items,
     expectedTotalInr,
+    note,
   };
 }
 
@@ -218,6 +222,7 @@ export async function placeOrder(rawInput: unknown): Promise<PlaceOrderResult> {
         data: {
           token,
           tokenDay,
+          note: input.note ?? null,
           employeeId: employee.employeeId,
           employeeName: employee.name,
           stallId: stall.id,
@@ -316,7 +321,7 @@ export async function cancelVendorOrder(
   if (!ORDER_ID_PATTERN.test(orderId) || !stallCanCancel(from)) {
     return { ok: false, error: "This order can no longer be cancelled." };
   }
-  if (!(STALL_CANCEL_REASONS as readonly string[]).includes(reason)) {
+  if (!cancelReasonsFor(from).includes(reason)) {
     return { ok: false, error: "Pick a reason to tell the employee." };
   }
 
@@ -435,4 +440,24 @@ export async function rateOrder(rawOrderId: unknown, rawRating: unknown, rawComm
   if (rated.count === 0) return { ok: false, error: "This order can't be rated (already rated, or not collected yet)." };
   revalidatePath(`/orders/${orderId}`);
   return { ok: true };
+}
+
+export type BagCheck = Record<string, { state: "ok" | "soldout" | "gone"; priceInr?: number }>;
+
+// Checkout looks the bag up again: items can sell out, be hidden or change
+// price after they were added (the bag lives in the browser).
+export async function checkBag(rawStallId: unknown, rawIds: unknown): Promise<BagCheck> {
+  const stallId = cleanText(rawStallId, 40);
+  const ids = Array.isArray(rawIds) ? rawIds.slice(0, MAX_LINES_PER_ORDER).map((id) => cleanText(id, 80)) : [];
+  if (!STALL_ID_PATTERN.test(stallId) || !ids.every((id) => ITEM_ID_PATTERN.test(id))) return {};
+  const items = await prisma.menuItem.findMany({ where: { stallId, id: { in: ids } } });
+  const byId = new Map(items.map((item) => [item.id, item]));
+  return Object.fromEntries(
+    ids.map((id) => {
+      const item = byId.get(id);
+      if (!item || item.archived) return [id, { state: "gone" as const }];
+      if (!item.available) return [id, { state: "soldout" as const }];
+      return [id, { state: "ok" as const, priceInr: effectivePrice(item) }];
+    }),
+  );
 }

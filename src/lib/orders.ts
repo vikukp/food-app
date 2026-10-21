@@ -26,8 +26,9 @@ export function employeeCanCancel(status: string) {
   return status === "PLACED";
 }
 
+// Before the food is ready, with a reason; once ready, only as a no-show.
 export function stallCanCancel(status: string) {
-  return status === "PLACED" || status === "PREPARING";
+  return status === "PLACED" || status === "PREPARING" || status === "READY";
 }
 
 export const STALL_CANCEL_REASONS = [
@@ -35,6 +36,13 @@ export const STALL_CANCEL_REASONS = [
   "Kitchen is closing",
   "Too busy to make it in time",
 ] as const;
+
+export const NO_SHOW_REASON = "Not collected";
+
+export function cancelReasonsFor(status: string): readonly string[] {
+  if (status === "READY") return [NO_SHOW_REASON];
+  return stallCanCancel(status) ? STALL_CANCEL_REASONS : [];
+}
 
 export function nextStatus(status: OrderStatus): OrderStatus | null {
   if (status === "PLACED") return "PREPARING";

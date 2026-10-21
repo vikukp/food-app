@@ -336,7 +336,7 @@ const stalls: StallSeed[] = [
       { slug: "vada-combo", name: "Idli vada combo", description: "Two idli, one vada.", priceInr: 70, veg: true, category: "Tiffin" },
       { slug: "pongal", name: "Ven pongal", description: "With ghee, sambar, chutney.", priceInr: 80, veg: true, category: "Tiffin" },
       { slug: "kesari", name: "Kesari bath", description: "Small plate.", priceInr: 40, veg: true, category: "Dessert" },
-      { slug: "coffee", name: "Filter coffee", description: "Byriani-strong decoction.", priceInr: 35, veg: true, category: "Drinks" },
+      { slug: "coffee", name: "Filter coffee", description: "Strong chicory decoction, frothed.", priceInr: 35, veg: true, category: "Drinks" },
       { slug: "tea", name: "Ginger tea", description: "Cutting chai style, full cup.", priceInr: 20, veg: true, category: "Drinks" },
     ],
   },

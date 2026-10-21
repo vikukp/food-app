@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { ShoppingBagIcon } from "lucide-react";
+import { toast } from "sonner";
 import { useCart } from "@/components/cart-provider";
+import { QtyStepper } from "@/components/qty-stepper";
 import { VegDot } from "@/components/veg-dot";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,7 +17,6 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { formatInr } from "@/lib/money";
-import { MAX_QTY_PER_LINE } from "@/lib/validation";
 
 export function CartButton() {
   const { count, hydrated } = useCart();
@@ -54,7 +55,7 @@ export function CartButton() {
 }
 
 function CartPanel() {
-  const { cart, total, setQty, clear } = useCart();
+  const { cart, total, clear, replace } = useCart();
   return (
     <>
       <SheetHeader>
@@ -76,30 +77,11 @@ function CartPanel() {
               <div className="min-w-0">
                 <p className="flex items-center gap-2 font-medium">
                   <VegDot veg={item.veg} />
-                  <span className="truncate">{item.name}</span>
+                  <span className="break-words">{item.name}</span>
                 </p>
                 <p className="text-xs text-muted-foreground">{formatInr(item.priceInr)} each</p>
               </div>
-              <div className="flex items-center gap-1">
-                <Button
-                  size="icon-xs"
-                  variant="outline"
-                  aria-label={`One less ${item.name}`}
-                  onClick={() => setQty(item.menuItemId, item.qty - 1)}
-                >
-                  −
-                </Button>
-                <span className="w-5 text-center text-sm tabular-nums">{item.qty}</span>
-                <Button
-                  size="icon-xs"
-                  variant="outline"
-                  aria-label={`One more ${item.name}`}
-                  disabled={item.qty >= MAX_QTY_PER_LINE}
-                  onClick={() => setQty(item.menuItemId, item.qty + 1)}
-                >
-                  +
-                </Button>
-              </div>
+              <QtyStepper menuItemId={item.menuItemId} name={item.name} qty={item.qty} />
             </div>
           ))
         )}
@@ -114,7 +96,19 @@ function CartPanel() {
             <Button className="h-10 w-full" render={<Link href="/checkout" />}>
               Choose pickup time
             </Button>
-            <Button variant="ghost" onClick={clear}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                const before = cart;
+                clear();
+                toast("Bag cleared", {
+                  action: {
+                    label: "Undo",
+                    onClick: () => replace({ id: before.stallId!, name: before.stallName! }, before.items),
+                  },
+                });
+              }}
+            >
               Clear bag
             </Button>
           </>

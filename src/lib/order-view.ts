@@ -17,6 +17,7 @@ export type OrderRecord = {
   cancelReason: string | null;
   createdAt: Date;
   rating: number | null;
+  note: string | null;
   preparingAt: Date | null;
   readyAt: Date | null;
   collectedAt: Date | null;
@@ -43,6 +44,7 @@ export type OrderView = {
   cancelNote: string | null;
   timeline: TimelineStep[];
   rating: number | null;
+  note: string | null;
   createdAt: string;
   items: { id: string; name: string; qty: number; priceInr: number; veg: boolean }[];
   qrDataUrl: string;
@@ -102,6 +104,7 @@ export async function toOrderView(order: OrderRecord): Promise<OrderView> {
     cancelNote: cancelNote(order),
     timeline: orderTimeline(order),
     rating: order.rating,
+    note: order.note,
     createdAt: order.createdAt.toISOString(),
     items: order.items,
     qrDataUrl,
