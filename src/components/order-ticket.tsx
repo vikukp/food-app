@@ -12,6 +12,7 @@ import { cancelOwnOrder, reorderLines } from "@/lib/actions";
 import { formatInr } from "@/lib/money";
 import type { OrderStatusUpdate, OrderView } from "@/lib/order-view";
 import { employeeCanCancel, isOpenStatus } from "@/lib/orders";
+import { keepTicket } from "@/lib/offline-tickets";
 import { announceReady, askToNotify, canNotify } from "@/lib/ready-alert";
 
 export function OrderTicket({ initial }: { initial: OrderView }) {
@@ -26,6 +27,11 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
   // Bumped on the employee's own change, so a poll already in flight cannot undo it.
   const edits = useRef(0);
   const open = isOpenStatus(order.status);
+
+  useEffect(() => {
+    // Keep a copy for when the phone loses signal at the counter.
+    if (process.env.NODE_ENV === "production") void keepTicket(initial.id);
+  }, [initial.id]);
 
   useEffect(() => {
     if (!canNotify()) return;
@@ -111,7 +117,7 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
   const cancelled = order.status === "CANCELLED";
 
   return (
-    <div className="mx-auto max-w-md space-y-4">
+    <div className="mx-auto max-w-md space-y-4" data-ticket-id={order.id}>
       <div
         className={`rounded-2xl border bg-card p-5 text-center shadow-sm ${
           ready ? "ring-2 ring-emerald-600" : ""

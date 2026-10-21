@@ -4,6 +4,8 @@ HungerBox-style web app for the HPE IWF campus food court. Employees browse abou
 
 This is a web-first slice. Phones work in the browser (Add to Home Screen / PWA). Native iOS and Play Store apps are not included yet.
 
+**Works without a signal at the counter.** A service worker (`public/sw.js`, production only) keeps a copy of every ticket the employee opens (the last 10), so the token and QR still show if the phone drops off the network in the food court; other pages show a short offline notice listing the saved tickets. Signing out answers with `Clear-Site-Data`, which removes the saved tickets, the bag and the worker from a shared phone.
+
 ## Run locally
 
 Needs Node.js 20.9 or newer and npm.

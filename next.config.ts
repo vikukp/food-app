@@ -23,6 +23,8 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },
+      // Browsers check for a new worker on each visit; never serve a stale one.
+      { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache" }] },
       {
         // The kitchen queue sets its own "private, no-cache" so its poll can
         // revalidate with an ETag; every other API answer is never stored.

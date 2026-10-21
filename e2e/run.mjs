@@ -584,6 +584,40 @@ await step("the counter downloads today's sales as CSV", async () => {
   return `${text.trim().split("\n").length - 1} orders in ${download.suggestedFilename()}`;
 });
 
+await step("a ticket opened once is kept for offline, and sign-out wipes it", async () => {
+  const phone = await newPage("offline", { width: 390, height: 844 });
+  await phone.context().addCookies(await emp.context().cookies());
+  await phone.goto(`${BASE}/orders`);
+  // Open it the way people do: a client-side link, not a full page load.
+  const ticket = phone.locator("main a", { hasText: token });
+  const ticketPath = await ticket.getAttribute("href");
+  await ticket.click();
+  await phone.waitForURL(`${BASE}${ticketPath}`);
+  // Playwright's offline switch does not reach service worker requests, so
+  // check what was kept; serving it offline is checked by hand.
+  const kept = () => phone.evaluate(async (path) => Boolean(await caches.match(path)), ticketPath);
+  const until = async (want, ms) => {
+    for (const end = Date.now() + ms; Date.now() < end; await sleep(200)) if ((await kept()) === want) return;
+  };
+  await until(true, 8000);
+  const html = await phone.evaluate(async (path) => (await caches.match(path))?.text(), ticketPath);
+  check(html?.includes(token), "the kept copy is not the ticket");
+
+  // Someone else signing in on this browser drops the previous person's copies.
+  await phone.evaluate(() => localStorage.setItem("iwf-device-owner", "someone-else"));
+  await phone.goto(`${BASE}/orders`);
+  await until(false, 5000);
+  check(!(await kept()), "another person's ticket survived a new sign-in");
+
+  await phone.goto(`${BASE}/orders`);
+  await phone.locator("header").getByRole("button", { name: "Sign out" }).click();
+  await phone.waitForURL(`${BASE}/`);
+  const left = await phone.evaluate(async () => (await caches.keys()).length);
+  check(left === 0, `${left} caches left after sign-out`);
+  await phone.context().close();
+  return `${token} kept after a link click; wiped for a new owner and on sign-out`;
+});
+
 await step("only food court admins see the admin screen, and PIN resets need a fresh code", async () => {
   // The page streams behind the root loading screen, so "not found" arrives as
   // content rather than a 404 status: check what renders.
