@@ -571,6 +571,35 @@ await step("a stall can pause new orders, and set its hours", async () => {
   await vendor.context().close();
 });
 
+await step("only food court admins see the admin screen, and PIN resets need a fresh code", async () => {
+  // The page streams behind the root loading screen, so "not found" arrives as
+  // content rather than a 404 status: check what renders.
+  await emp.goto(`${BASE}/admin`);
+  await emp.getByRole("heading", { name: "Not found" }).waitFor({ timeout: 5000 });
+  check((await emp.getByText("Food court admin").count()) === 0, "a regular employee can see the admin screen");
+
+  // In demo mode the demo employee is the admin; a PIN sign-in can view and pause.
+  const admin = await newPage("admin");
+  await pinSignIn(admin, "9845012345", "4826");
+  await admin.waitForURL(`${BASE}/stalls`);
+  await admin.goto(`${BASE}/admin`);
+  const row = admin.locator("main li", { hasText: "Maggi & Momos" });
+  await row.getByRole("button", { name: "Pause orders" }).click();
+  await admin.getByText("Maggi & Momos paused").waitFor({ timeout: 5000 });
+  try {
+    await emp.goto(`${BASE}/stalls/momos`);
+    await emp.getByText("This stall has paused new orders").waitFor({ timeout: 5000 });
+  } finally {
+    await row.getByRole("button", { name: "Resume orders" }).click();
+    await admin.getByText("Maggi & Momos is taking orders again").waitFor({ timeout: 5000 });
+  }
+  admin.once("dialog", (dialog) => dialog.accept());
+  await row.getByRole("button", { name: "Reset counter PIN" }).click();
+  await admin.getByText("sign in again with a one-time code").first().waitFor({ timeout: 5000 });
+  await admin.context().close();
+  return "404 for employees; pause works; PIN reset refused without a fresh code";
+});
+
 await step("a tampered session cookie is refused", async () => {
   const real = (await emp.context().cookies()).find((c) => c.name === "iwf_employee");
   const [body, signature] = real.value.split(".");

@@ -43,7 +43,8 @@ export async function proxy(request: NextRequest) {
   const needsEmployee =
     pathname.startsWith("/stalls") ||
     pathname.startsWith("/checkout") ||
-    pathname.startsWith("/orders");
+    pathname.startsWith("/orders") ||
+    pathname.startsWith("/admin");
   const needsVendor = pathname === "/vendor" || pathname.startsWith("/vendor/menu");
 
   if (needsEmployee) {
