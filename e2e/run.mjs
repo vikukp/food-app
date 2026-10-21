@@ -584,6 +584,33 @@ await step("the counter downloads today's sales as CSV", async () => {
   return `${text.trim().split("\n").length - 1} orders in ${download.suggestedFilename()}`;
 });
 
+await step("a ticket opened once is kept for offline, and sign-out wipes it", async () => {
+  const phone = await newPage("offline", { width: 390, height: 844 });
+  await phone.context().addCookies(await emp.context().cookies());
+  await phone.goto(`${BASE}/orders`);
+  const ticketPath = await phone.locator("main a", { hasText: token }).getAttribute("href");
+  await phone.goto(`${BASE}${ticketPath}`);
+  await phone.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+    if (!navigator.serviceWorker.controller) {
+      await new Promise((resolve) => navigator.serviceWorker.addEventListener("controllerchange", resolve, { once: true }));
+    }
+  });
+  await phone.reload(); // the worker keeps this copy
+  // Playwright's offline switch does not reach service worker requests, so
+  // check what the worker kept; serving it offline is checked by hand.
+  const kept = await phone.evaluate(async (path) => Boolean(await caches.match(path)), ticketPath);
+  check(kept, "the worker did not keep the ticket");
+
+  await phone.goto(`${BASE}/orders`);
+  await phone.locator("header").getByRole("button", { name: "Sign out" }).click();
+  await phone.waitForURL(`${BASE}/`);
+  const left = await phone.evaluate(async () => (await caches.keys()).length);
+  check(left === 0, `${left} caches left after sign-out`);
+  await phone.context().close();
+  return `${token} kept for offline; caches cleared on sign-out`;
+});
+
 await step("only food court admins see the admin screen, and PIN resets need a fresh code", async () => {
   // The page streams behind the root loading screen, so "not found" arrives as
   // content rather than a 404 status: check what renders.

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { logoutEmployee, logoutVendor } from "@/lib/actions";
+import { logoutVendor } from "@/lib/actions";
 import { buttonVariants } from "@/components/ui/button";
 
 type Props = {
@@ -36,7 +36,7 @@ export function SiteHeader({ variant, name, stallName, right }: Props) {
                 Orders
               </Link>
               {right}
-              <form action={logoutEmployee}>
+              <form action="/api/logout" method="post">
                 <button
                   type="submit"
                   className={buttonVariants({

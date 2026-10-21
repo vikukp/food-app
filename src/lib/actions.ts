@@ -20,7 +20,6 @@ import { verifyQrPayload } from "@/lib/qr";
 import { prisma } from "@/lib/prisma";
 import { clearBucket, clientIp, consume } from "@/lib/rate-limit";
 import {
-  clearEmployeeSession,
   clearVendorSession,
   getEmployeeSession,
   getVendorSession,
@@ -44,11 +43,6 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 
 const MINUTE = 60_000;
 const ORDER_ID_PATTERN = /^[a-z0-9]{10,40}$/i;
-
-export async function logoutEmployee() {
-  await clearEmployeeSession();
-  redirect("/");
-}
 
 export async function loginVendor(formData: FormData) {
   const ip = await clientIp();
