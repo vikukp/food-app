@@ -4,7 +4,8 @@
 // BASE_URL, CHROME_PATH and SCREENSHOT_DIR are optional. Every run registers
 // fresh random mobile numbers and never touches the demo employee.
 import { randomInt } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { chromium } from "playwright-core";
 
 const BASE = (process.env.BASE_URL ?? "http://127.0.0.1:43123").replace(/\/+$/, "");
@@ -553,6 +554,48 @@ await step("sign-in screens fit a phone screen", async () => {
   check((await mobile.evaluate(overflow)) <= 0, "register page scrolls sideways");
   await snap(mobile, "09-mobile-register");
   await mobile.context().close();
+});
+
+const AXE = readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8");
+
+async function axeViolations(page) {
+  await page.locator("main").waitFor();
+  await page.evaluate(AXE);
+  const result = await page.evaluate(() =>
+    window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21aa", "best-practice"] }),
+  );
+  return result.violations.map((v) => `${new URL(page.url()).pathname}: ${v.id} (${v.nodes.length})`);
+}
+
+await step("pages pass an automated accessibility audit (axe, WCAG 2.1 AA)", async () => {
+  const found = [];
+  let pages = 0;
+  const audit = async (page) => {
+    pages += 1;
+    found.push(...(await axeViolations(page)));
+  };
+  const guest = await newPage("axe-guest");
+  for (const path of ["/", "/enter", "/enter?method=pin", "/vendor/login"]) {
+    await guest.goto(`${BASE}${path}`);
+    await audit(guest);
+  }
+  await guest.context().close();
+
+  const latest = await emp.goto(`${BASE}/orders`).then(() =>
+    emp.locator("main a[href^='/orders/']").first().getAttribute("href"),
+  );
+  for (const path of ["/stalls", "/stalls/momos", "/checkout", "/orders", latest]) {
+    await emp.goto(`${BASE}${path}`);
+    await audit(emp);
+  }
+
+  const vendor = await vendorSignIn("axe-vendor");
+  await audit(vendor);
+  await vendor.goto(`${BASE}/vendor/menu`);
+  await audit(vendor);
+  await vendor.context().close();
+  check(found.length === 0, found.join("; "));
+  return `${pages} pages, no violations`;
 });
 
 await step("no console or page errors", async () => {

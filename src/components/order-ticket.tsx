@@ -93,9 +93,9 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
         <p className="text-xs tracking-[0.2em] text-muted-foreground uppercase">
           {cancelled ? "Cancelled order" : "Show this at the counter"}
         </p>
-        <p className={`mt-2 font-mono text-4xl font-semibold tracking-widest ${cancelled ? "text-muted-foreground line-through" : ""}`}>
+        <h1 className={`mt-2 font-mono text-4xl font-semibold tracking-widest ${cancelled ? "text-muted-foreground line-through" : ""}`}>
           {order.token}
-        </p>
+        </h1>
         {cancelled ? null : (
           <div className="mt-4 flex justify-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
