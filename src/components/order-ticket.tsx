@@ -6,7 +6,7 @@ import { VegDot } from "@/components/veg-dot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatInr } from "@/lib/money";
-import type { OrderView } from "@/lib/order-view";
+import type { OrderStatusUpdate, OrderView } from "@/lib/order-view";
 
 export function OrderTicket({ initial }: { initial: OrderView }) {
   const [order, setOrder] = useState(initial);
@@ -20,8 +20,8 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
           setError("Could not refresh this order.");
           return;
         }
-        const data = (await res.json()) as OrderView;
-        setOrder(data);
+        const data = (await res.json()) as OrderStatusUpdate;
+        setOrder((current) => ({ ...current, status: data.status, statusLabel: data.statusLabel }));
         setError(null);
       } catch {
         setError("You are offline. The token on screen is still valid.");

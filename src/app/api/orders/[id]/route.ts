@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { toOrderView } from "@/lib/order-view";
+import type { OrderStatusUpdate } from "@/lib/order-view";
+import { statusLabel } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 import { getEmployeeSession } from "@/lib/session";
 
@@ -12,15 +13,15 @@ export async function GET(
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
   const { id } = await context.params;
+  // The ticket polls this every few seconds; only the status changes, so the
+  // QR image and line items come from the page render, not from every poll.
   const order = await prisma.order.findUnique({
     where: { id },
-    include: {
-      stall: { select: { name: true, location: true } },
-      items: true,
-    },
+    select: { status: true, employeeId: true },
   });
   if (!order || order.employeeId !== session.employeeId) {
     return NextResponse.json({ error: "Order not found." }, { status: 404 });
   }
-  return NextResponse.json(await toOrderView(order));
+  const update: OrderStatusUpdate = { status: order.status, statusLabel: statusLabel(order.status) };
+  return NextResponse.json(update);
 }
