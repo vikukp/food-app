@@ -691,6 +691,38 @@ await step("a full pickup slot is not offered, and the queue sets the earliest s
   }
 });
 
+await step("a stall's dietary info shows on the menu and the Jain filter uses it", async () => {
+  const vendor = await vendorSignIn("vendor-dietary", "idli");
+  await vendor.goto(`${BASE}/vendor/menu`);
+  const card = vendor.locator("main li").filter({ has: vendor.locator("summary") }).first();
+  const name = (await card.locator("p.font-medium").first().innerText()).trim();
+  const edit = async (on) => {
+    await vendor.goto(`${BASE}/vendor/menu`);
+    const item = vendor.locator("main li", { hasText: name }).first();
+    await item.locator("summary").click();
+    const form = item.locator("form", { has: vendor.getByRole("button", { name: "Save changes" }) });
+    await form.locator("input[name='kcal']").fill(on ? "250" : "");
+    await form.locator("input[name='jain']").setChecked(on);
+    await form.locator("input[name='allergen'][value='milk']").setChecked(on);
+    await form.getByRole("button", { name: "Save changes" }).click();
+    await vendor.waitForURL(/ok=saved/);
+  };
+  await edit(true);
+  try {
+    await emp.goto(`${BASE}/stalls/idli`);
+    const row = emp.locator("main li", { hasText: name }).first();
+    const text = await row.innerText();
+    check(text.includes("250 kcal") && text.includes("Jain") && text.includes("Contains milk"), `badges missing: ${text}`);
+    await emp.getByRole("button", { name: "Jain", exact: true }).click();
+    const listed = await emp.locator("main ul li").count();
+    check(listed === 1, `Jain filter shows ${listed} items, expected 1`);
+  } finally {
+    await edit(false);
+    await vendor.context().close();
+  }
+  return `${name}: kcal, Jain and allergen shown; Jain filter narrows to it`;
+});
+
 await step("a tampered session cookie is refused", async () => {
   const real = (await emp.context().cookies()).find((c) => c.name === "iwf_employee");
   const [body, signature] = real.value.split(".");

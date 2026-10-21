@@ -68,6 +68,10 @@ export default async function StallPage({
               : `Closed for today. Reopens at ${stall.openTime} IST. Browse, or pick a stall that is open now.`}
           </p>
         ) : null}
+        <p className="mt-3 text-xs text-muted-foreground">
+          Allergens are listed where the stall has added them. If you have an allergy, check with the counter
+          before ordering.
+        </p>
         <div className="mt-6">
           <MenuList
             stall={{ id: stall.id, name: stall.name }}

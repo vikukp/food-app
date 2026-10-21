@@ -14,6 +14,8 @@ export const CATALOGUE_OK: Record<string, string> = {
 
 export const CATALOGUE_ERRORS: Record<string, string> = {
   invalid: "Give the item a name and a category (at least 2 characters each).",
+  diet: "Pick veg, egg or non-veg for the item.",
+  kcal: "Calories must be a whole number from 1 to 3000, or left empty.",
   price: "Price must be a whole number between ₹1 and ₹5,000.",
   offer: "Offer price must be a whole number lower than the regular price.",
   notfound: "That item is not on your menu.",

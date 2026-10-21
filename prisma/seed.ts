@@ -32,6 +32,8 @@ type ItemSeed = {
   description: string;
   priceInr: number;
   veg: boolean;
+  // Non-veg only because of egg.
+  egg?: boolean;
   category: string;
   available?: boolean;
 };
@@ -87,7 +89,7 @@ const stalls: StallSeed[] = [
       { slug: "chicken", name: "Chicken dum biryani", description: "Single, with mirchi ka salan and raita.", priceInr: 180, veg: false, category: "Biryani" },
       { slug: "mutton", name: "Mutton dum biryani", description: "Slow-cooked mutton, extra masala.", priceInr: 240, veg: false, category: "Biryani" },
       { slug: "veg", name: "Veg dum biryani", description: "Paneer, beans, and fried onion.", priceInr: 150, veg: true, category: "Biryani" },
-      { slug: "egg", name: "Egg biryani", description: "Two boiled eggs, dum rice.", priceInr: 140, veg: false, category: "Biryani" },
+      { slug: "egg", name: "Egg biryani", description: "Two boiled eggs, dum rice.", priceInr: 140, veg: false, egg: true, category: "Biryani" },
       { slug: "salan", name: "Mirchi ka salan extra", description: "Side of peanut chilli gravy.", priceInr: 30, veg: true, category: "Sides" },
       { slug: "raita", name: "Burani raita", description: "Garlic yogurt raita.", priceInr: 35, veg: true, category: "Sides" },
       { slug: "shorba", name: "Mutton shorba", description: "Clear pepper broth.", priceInr: 60, veg: false, category: "Sides" },
@@ -147,7 +149,7 @@ const stalls: StallSeed[] = [
     busyLevel: "moderate",
     accent: "#7c2d12",
     items: [
-      { slug: "egg", name: "Egg roll", description: "Single egg, onion, chilli, lime.", priceInr: 80, veg: false, category: "Rolls" },
+      { slug: "egg", name: "Egg roll", description: "Single egg, onion, chilli, lime.", priceInr: 80, veg: false, egg: true, category: "Rolls" },
       { slug: "chicken", name: "Chicken kathi roll", description: "Tikka, egg wash, onion.", priceInr: 130, veg: false, category: "Rolls" },
       { slug: "paneer", name: "Paneer roll", description: "Spiced paneer, mint, onion.", priceInr: 110, veg: true, category: "Rolls" },
       { slug: "double-egg", name: "Double egg chicken roll", description: "Heavier wrap for a late lunch.", priceInr: 150, veg: false, category: "Rolls" },
@@ -454,7 +456,7 @@ const stalls: StallSeed[] = [
     items: [
       { slug: "paneer-bowl", name: "BBQ paneer bowl", description: "Rice, grilled paneer, slaw, sauce.", priceInr: 150, veg: true, category: "Bowls" },
       { slug: "chicken-bowl", name: "BBQ chicken bowl", description: "Charred chicken, corn, rice.", priceInr: 170, veg: false, category: "Bowls" },
-      { slug: "egg-bowl", name: "Chilli garlic egg bowl", description: "Two eggs, garlic rice.", priceInr: 130, veg: false, category: "Bowls" },
+      { slug: "egg-bowl", name: "Chilli garlic egg bowl", description: "Two eggs, garlic rice.", priceInr: 130, veg: false, egg: true, category: "Bowls" },
       { slug: "mushroom", name: "Smoky mushroom bowl", description: "Roast mushroom, sesame.", priceInr: 150, veg: true, category: "Bowls" },
       { slug: "extra-chicken", name: "Extra grilled chicken", description: "Add-on protein.", priceInr: 70, veg: false, category: "Add-ons" },
       { slug: "corn", name: "Butter corn cup", description: "Side of corn.", priceInr: 50, veg: true, category: "Sides" },
@@ -490,8 +492,14 @@ async function main() {
 
     for (const item of stall.items) {
       const id = `${stall.id}-${item.slug}`;
-      const found = await prisma.menuItem.findUnique({ where: { id }, select: { id: true } });
-      if (found) continue;
+      const found = await prisma.menuItem.findUnique({ where: { id }, select: { id: true, name: true, egg: true } });
+      if (found) {
+        // Label egg dishes seeded before the egg mark existed, unless the stall renamed them.
+        if (item.egg && !found.egg && found.name === item.name) {
+          await prisma.menuItem.update({ where: { id }, data: { egg: true } });
+        }
+        continue;
+      }
       await prisma.menuItem.create({
         data: {
           id,
@@ -500,6 +508,7 @@ async function main() {
           description: item.description,
           priceInr: item.priceInr,
           veg: item.veg,
+          egg: item.egg ?? false,
           category: item.category,
           available: item.available ?? true,
         },
