@@ -1,6 +1,7 @@
+import { campusDate } from "@/lib/hours";
 import { OPEN_STATUSES } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
-import { toVendorOrder, vendorOrderInclude } from "@/lib/vendor-orders";
+import { toVendorOrder, vendorOrderInclude, type VendorDaySummary } from "@/lib/vendor-orders";
 
 // The "done" tab shows the latest collected or cancelled orders, not the whole day.
 const RECENT_DONE = 30;
@@ -32,4 +33,37 @@ export async function vendorQueueVersion(stallId: string) {
   });
   // Includes the stall, so a shared browser never reuses another stall's copy.
   return `"${stallId}-${_count._all}-${_max.updatedAt?.getTime() ?? 0}"`;
+}
+
+// Today's numbers for the counter (campus day). Cancelled orders are counted
+// separately and left out of revenue and top items.
+export async function vendorDaySummary(stallId: string): Promise<VendorDaySummary> {
+  const tokenDay = campusDate();
+  const [byStatus, top] = await Promise.all([
+    prisma.order.groupBy({
+      by: ["status"],
+      where: { stallId, tokenDay },
+      _count: { _all: true },
+      _sum: { totalInr: true },
+    }),
+    prisma.orderItem.groupBy({
+      by: ["name"],
+      where: { order: { stallId, tokenDay, status: { not: "CANCELLED" } } },
+      _sum: { qty: true },
+      orderBy: { _sum: { qty: "desc" } },
+      take: 3,
+    }),
+  ]);
+  const live = byStatus.filter((row) => row.status !== "CANCELLED");
+  return {
+    orders: live.reduce((sum, row) => sum + row._count._all, 0),
+    revenueInr: live.reduce((sum, row) => sum + (row._sum.totalInr ?? 0), 0),
+    cancelled: byStatus.find((row) => row.status === "CANCELLED")?._count._all ?? 0,
+    topItems: top.map((row) => ({ name: row.name, qty: row._sum.qty ?? 0 })),
+  };
+}
+
+export async function vendorQueueSnapshot(stallId: string) {
+  const [orders, summary] = await Promise.all([listVendorOrders(stallId), vendorDaySummary(stallId)]);
+  return { orders, summary };
 }

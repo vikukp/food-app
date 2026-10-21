@@ -8,6 +8,7 @@ import { STALL_CANCEL_REASONS, isOrderStatus, nextStatus, randomToken, stallCanC
 import { effectivePrice } from "@/lib/pricing";
 import { verifyPin } from "@/lib/pin";
 import { isValidPickupSlot } from "@/lib/pickup-slots";
+import { verifyQrPayload } from "@/lib/qr";
 import { prisma } from "@/lib/prisma";
 import { clearBucket, clientIp, consume } from "@/lib/rate-limit";
 import {
@@ -29,6 +30,7 @@ import {
   isRecord,
   toInt,
 } from "@/lib/validation";
+import { toVendorOrder, vendorOrderInclude, type VendorOrder } from "@/lib/vendor-orders";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -308,4 +310,33 @@ export async function cancelVendorOrder(
   revalidatePath("/vendor");
   revalidatePath(`/orders/${orderId}`);
   return { ok: true };
+}
+
+type LookupResult = { ok: true; order: VendorOrder } | { ok: false; error: string };
+
+// The counter types a token (IWF-4821 or just 4821) or scans the ticket's QR.
+// A QR must carry a valid signature and belong to this stall.
+export async function lookupVendorOrder(rawQuery: unknown): Promise<LookupResult> {
+  const vendor = await getVendorSession();
+  if (!vendor) return { ok: false, error: "Sign in at the stall counter first." };
+  const query = cleanText(rawQuery, 200);
+
+  let where: Prisma.OrderWhereInput;
+  if (query.startsWith("IWF-FOOD|")) {
+    const qr = await verifyQrPayload(query);
+    if (!qr) return { ok: false, error: "That QR code is not a valid food court ticket." };
+    where = { id: qr.orderId };
+  } else {
+    const digits = query.replace(/^IWF-?/i, "").trim();
+    if (!/^\d{4}$/.test(digits)) return { ok: false, error: "Type the 4 digits of the token, like 4821." };
+    // Tokens repeat across days, so a typed one means today's order.
+    where = { stallId: vendor.stallId, token: `IWF-${digits}`, tokenDay: campusDate() };
+  }
+
+  const order = await prisma.order.findFirst({ where, include: { ...vendorOrderInclude, stall: { select: { name: true } } } });
+  if (!order) return { ok: false, error: "No order with that token at this stall today." };
+  if (order.stallId !== vendor.stallId) {
+    return { ok: false, error: `${order.token} is an order for ${order.stall.name}, not this stall.` };
+  }
+  return { ok: true, order: toVendorOrder(order) };
 }
