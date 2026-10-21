@@ -501,6 +501,32 @@ await step("the stall can cancel with a reason and the ticket says why", async (
   return `${cancelToken} cancelled by the stall`;
 });
 
+await step("the counter finds a token, hands it over, and other stalls cannot", async () => {
+  const digits = token.replace("IWF-", "");
+  const other = await vendorSignIn("vendor-dosa", "dosa");
+  await other.getByLabel("Find token").fill(digits);
+  await other.getByRole("button", { name: "Find" }).click();
+  await other.getByText("No order with that token at this stall today.").waitFor({ timeout: 5000 });
+  await other.context().close();
+
+  const vendor = await vendorSignIn("vendor-find");
+  const summary = await vendor.getByRole("region", { name: "Today" }).innerText();
+  check(/\b[1-9]\d*\s+orders today/.test(summary), `summary shows no orders: ${summary.replace(/\s+/g, " ")}`);
+  await vendor.getByLabel("Find token").fill(digits);
+  await vendor.getByRole("button", { name: "Find" }).click();
+  const card = vendor.locator("main li", { hasText: token });
+  await card.getByRole("button", { name: "Mark collected" }).click();
+  await vendor.getByText("Collected", { exact: true }).first().waitFor({ timeout: 5000 });
+  await vendor.context().close();
+
+  const ticket = await newPage("ticket-check");
+  await ticket.context().addCookies(await emp.context().cookies());
+  await ticket.goto(`${BASE}/orders`);
+  await ticket.locator("main li", { hasText: token }).getByText("Collected").waitFor({ timeout: 8000 });
+  await ticket.context().close();
+  return `${token} found by token and collected; another stall was refused`;
+});
+
 await step("a tampered session cookie is refused", async () => {
   const real = (await emp.context().cookies()).find((c) => c.name === "iwf_employee");
   const [body, signature] = real.value.split(".");

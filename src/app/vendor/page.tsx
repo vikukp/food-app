@@ -3,7 +3,7 @@ import { SiteHeader } from "@/components/site-header";
 import { VendorQueue } from "@/components/vendor-queue";
 import { prisma } from "@/lib/prisma";
 import { getVendorSession } from "@/lib/session";
-import { listVendorOrders } from "@/lib/vendor-queries";
+import { vendorQueueSnapshot } from "@/lib/vendor-queries";
 
 export const metadata = { title: "Kitchen queue" };
 
@@ -14,7 +14,7 @@ export default async function VendorPage() {
   const stall = await prisma.stall.findUnique({ where: { id: session.stallId } });
   if (!stall) redirect("/vendor/login");
 
-  const orders = await listVendorOrders(stall.id);
+  const snapshot = await vendorQueueSnapshot(stall.id);
 
   return (
     <div className="flex min-h-full flex-col">
@@ -25,7 +25,7 @@ export default async function VendorPage() {
           {stall.location} · incoming orders refresh every few seconds.
         </p>
         <div className="mt-5">
-          <VendorQueue initial={orders} />
+          <VendorQueue initial={snapshot} />
         </div>
       </main>
     </div>

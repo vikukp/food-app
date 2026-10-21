@@ -10,8 +10,19 @@ export type VendorOrder = {
   employeeName: string;
   cancelReason: string | null;
   createdAt: string;
+  // Set on the client for an order pulled in by "Find token" or a QR scan.
+  found?: boolean;
   items: { id: string; name: string; qty: number; veg: boolean }[];
 };
+
+export type VendorDaySummary = {
+  orders: number;
+  revenueInr: number;
+  cancelled: number;
+  topItems: { name: string; qty: number }[];
+};
+
+export type VendorQueueSnapshot = { orders: VendorOrder[]; summary: VendorDaySummary };
 
 export function toVendorOrder(order: {
   id: string;
