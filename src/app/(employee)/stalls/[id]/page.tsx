@@ -5,7 +5,8 @@ import { MenuList } from "@/components/menu-list";
 import { SiteHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { busyCopy, hoursLabel, isStallOpen, opensLaterToday } from "@/lib/hours";
+import { hoursLabel, isStallOpen, opensLaterToday, waitCopy } from "@/lib/hours";
+import { activeOrderCounts } from "@/lib/stall-load";
 import { prisma } from "@/lib/prisma";
 import { getEmployeeSession } from "@/lib/session";
 
@@ -34,6 +35,7 @@ export default async function StallPage({
   });
   if (!stall) notFound();
   const open = !stall.paused && isStallOpen(stall.openTime, stall.closeTime);
+  const active = (await activeOrderCounts([stall.id])).get(stall.id) ?? 0;
 
   return (
     <div className="flex min-h-full flex-col">
@@ -54,7 +56,7 @@ export default async function StallPage({
         <p className="mt-3 text-sm text-muted-foreground">{stall.description}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           {stall.vegOnly ? <Badge variant="outline">Pure veg</Badge> : null}
-          <Badge variant="outline">{busyCopy(stall.busyLevel)}</Badge>
+          {open ? <Badge variant="outline">{waitCopy(active, stall.prepMinutes)}</Badge> : null}
           <Badge variant="outline">{hoursLabel(stall.openTime, stall.closeTime)}</Badge>
         </div>
         {!open ? (

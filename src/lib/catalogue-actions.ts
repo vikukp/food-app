@@ -168,3 +168,14 @@ export async function setStallPaused(formData: FormData) {
   revalidatePath("/vendor");
   done(paused ? "paused" : "resumed");
 }
+
+export async function updateStallCapacity(formData: FormData) {
+  const vendor = await requireVendor();
+  const slotCapacity = toInt(cleanText(formData.get("slotCapacity"), 4));
+  const prepMinutes = toInt(cleanText(formData.get("prepMinutes"), 4));
+  if (slotCapacity === null || slotCapacity < 1 || slotCapacity > 100) fail("capacity");
+  if (prepMinutes === null || prepMinutes < 2 || prepMinutes > 90) fail("capacity");
+  await prisma.stall.update({ where: { id: vendor.stallId }, data: { slotCapacity, prepMinutes } });
+  revalidatePath("/stalls");
+  done("capacity");
+}

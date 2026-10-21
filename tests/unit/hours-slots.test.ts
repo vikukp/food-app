@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { campusDate, campusMinutesNow, hoursLabel, isStallOpen, serviceDay } from "@/lib/hours";
+import {
+  campusDate,
+  campusMinutesNow,
+  hoursLabel,
+  isStallOpen,
+  pickupLead,
+  serviceDay,
+  waitCopy,
+  waitMinutes,
+} from "@/lib/hours";
 import { getPickupSlots, isValidPickupSlot } from "@/lib/pickup-slots";
 
 // Campus time is IST (UTC+05:30).
@@ -20,6 +29,28 @@ describe("campus clock", () => {
     assert.equal(isStallOpen("11:30", "15:00", ist("12:00")), true);
     assert.equal(isStallOpen("11:30", "15:00", ist("15:00")), false);
     assert.equal(isStallOpen("00:00", "23:59", ist("03:00")), true);
+  });
+});
+
+describe("wait estimate", () => {
+  it("adds one prep time per three orders waiting", () => {
+    assert.equal(waitMinutes(0, 10), 10);
+    assert.equal(waitMinutes(2, 10), 10);
+    assert.equal(waitMinutes(3, 10), 20);
+    assert.equal(waitMinutes(8, 12), 36);
+    assert.equal(waitCopy(1, 10), "Short wait · ~10 min");
+    assert.equal(waitCopy(5, 10), "Moderate · ~20 min");
+    assert.equal(waitCopy(12, 8), "Busy · ~40 min");
+  });
+
+  it("pushes the first pickup slot past a long queue", () => {
+    assert.equal(getPickupSlots("08:00", "22:00", ist("12:07"), 10)[0].value, "12:30");
+    assert.equal(getPickupSlots("08:00", "22:00", ist("12:07"), 40)[0].value, "13:00");
+    // a mobbed counter still takes bookings, an hour out at most
+    assert.equal(pickupLead(300, 10), 60);
+    assert.equal(pickupLead(4, 10), 20);
+    // never earlier than the usual 10 minutes, whatever the estimate
+    assert.equal(getPickupSlots("08:00", "22:00", ist("12:07"), 2)[0].value, "12:30");
   });
 });
 

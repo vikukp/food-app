@@ -647,6 +647,38 @@ await step("only food court admins see the admin screen, and PIN resets need a f
   return "404 for employees; pause works; PIN reset refused without a fresh code";
 });
 
+await step("a full pickup slot is not offered, and the queue sets the earliest slot", async () => {
+  const vendor = await vendorSignIn("vendor-capacity", "idli");
+  const setCapacity = async (orders) => {
+    await vendor.goto(`${BASE}/vendor/menu`);
+    await vendor.fill("#slotCapacity", String(orders));
+    await vendor.locator("#slotCapacity").locator("xpath=ancestor::form").getByRole("button", { name: "Save" }).click();
+    await vendor.waitForURL(/ok=capacity/);
+  };
+  await setCapacity(1);
+  try {
+    await emp.goto(`${BASE}/stalls/idli`, { waitUntil: "networkidle" });
+    check(/~\d+ min/.test(await emp.locator("main").innerText()), "no wait estimate on the stall page");
+    await emp.locator("main button:has-text('Add')").first().click();
+    await emp.goto(`${BASE}/checkout`);
+    await emp.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
+    const first = emp.locator("main section button:not([disabled])").first();
+    const slot = (await first.innerText()).split("\n")[0];
+    await emp.locator("main button:has-text('Pay ₹')").click();
+    await emp.waitForURL(/\/orders\/[^/]+$/);
+    await emp.goto(`${BASE}/stalls/idli`, { waitUntil: "networkidle" });
+    await emp.locator("main button:has-text('Add')").first().click();
+    await emp.goto(`${BASE}/checkout`);
+    await emp.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
+    const taken = emp.getByRole("button", { name: `${slot}, full` });
+    check((await taken.count()) === 1 && (await taken.isDisabled()), `slot ${slot} is still offered after it filled`);
+    return `${slot} shown as full after one order`;
+  } finally {
+    await setCapacity(12);
+    await vendor.context().close();
+  }
+});
+
 await step("a tampered session cookie is refused", async () => {
   const real = (await emp.context().cookies()).find((c) => c.name === "iwf_employee");
   const [body, signature] = real.value.split(".");

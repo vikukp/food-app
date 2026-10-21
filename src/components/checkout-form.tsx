@@ -36,9 +36,8 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
 
   const stall = cart.stallId ? stalls[cart.stallId] : undefined;
   const slots = stall?.slots ?? [];
-  const pickupSlot = slots.some((slot) => slot.value === chosenSlot)
-    ? chosenSlot
-    : (slots[0]?.value ?? "");
+  const open = slots.filter((slot) => !slot.full);
+  const pickupSlot = open.some((slot) => slot.value === chosenSlot) ? chosenSlot : (open[0]?.value ?? "");
 
   if (!hydrated) {
     return <p className="text-sm text-muted-foreground">Loading your bag…</p>;
@@ -58,13 +57,15 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
     );
   }
 
-  if (!stall || !slots.length) {
+  if (!stall || !open.length) {
     return (
       <div className="rounded-xl border bg-card p-6">
         <p className="font-medium">{cart.stallName} is not taking orders right now.</p>
         <p className="mt-1 text-sm text-muted-foreground">
           {stall?.paused
             ? "The stall has paused new orders for a while. Your bag is saved; try again soon."
+            : stall && slots.length
+            ? "Every pickup slot for the next few hours is full. Try again in a little while, or pick another stall."
             : stall
             ? `Counter hours are ${hoursLabel(stall.openTime, stall.closeTime)} (IST). Pick a stall that is open now, or come back at ${stall.openTime}.`
             : "That stall is not on the court today."}
@@ -128,14 +129,21 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
               <button
                 key={slot.value}
                 type="button"
+                disabled={slot.full}
+                aria-label={slot.full ? `${slot.label}, full` : slot.label}
                 onClick={() => setChosenSlot(slot.value)}
-                className={`h-10 rounded-lg border text-sm font-medium ${
+                className={`flex h-12 flex-col items-center justify-center rounded-lg border text-sm font-medium disabled:cursor-not-allowed disabled:opacity-45 ${
                   pickupSlot === slot.value
                     ? "border-primary bg-primary text-primary-foreground"
                     : "border-border bg-background"
                 }`}
               >
-                {slot.label}
+                <span>{slot.label}</span>
+                {slot.full ? (
+                  <span className="text-[11px] font-normal">Full</span>
+                ) : slot.left !== undefined && slot.left <= 3 ? (
+                  <span className="text-[11px] font-normal">{slot.left} left</span>
+                ) : null}
               </button>
             ))}
           </div>

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { CatalogueEditor } from "@/components/catalogue-editor";
 import { SiteHeader } from "@/components/site-header";
 import { buttonVariants } from "@/components/ui/button";
-import { changeVendorPin, setStallPaused, updateStallHours } from "@/lib/catalogue-actions";
+import { changeVendorPin, setStallPaused, updateStallCapacity, updateStallHours } from "@/lib/catalogue-actions";
 import { crossesMidnight, hoursLabel, isAllDay } from "@/lib/hours";
 import { CATALOGUE_ERRORS, CATALOGUE_OK } from "@/lib/catalogue-messages";
 import { prisma } from "@/lib/prisma";
@@ -92,6 +92,46 @@ export default async function VendorMenuPage({
                 Save hours
               </button>
             </div>
+          </form>
+          <form action={updateStallCapacity} className="mt-4 grid gap-3 border-t pt-4 sm:grid-cols-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="slotCapacity">
+                Orders per 15-minute slot
+              </label>
+              <input
+                id="slotCapacity"
+                name="slotCapacity"
+                type="number"
+                min={1}
+                max={100}
+                defaultValue={stall.slotCapacity}
+                className={field}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="prepMinutes">
+                Usual prep time (minutes)
+              </label>
+              <input
+                id="prepMinutes"
+                name="prepMinutes"
+                type="number"
+                min={2}
+                max={90}
+                defaultValue={stall.prepMinutes}
+                className={field}
+              />
+            </div>
+            <div className="flex items-end justify-end">
+              <button type="submit" className={buttonVariants({ variant: "outline" })}>
+                Save
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground sm:col-span-3">
+              A full slot is not offered at checkout, so orders do not pile up at one time. The wait shown to
+              employees, and the earliest pickup slot, grow with your queue: about one prep time per three
+              orders waiting.
+            </p>
           </form>
           <form action={setStallPaused} className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
             <p className="text-sm">

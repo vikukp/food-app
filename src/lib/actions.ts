@@ -3,7 +3,8 @@
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { serviceDay } from "@/lib/hours";
+import { pickupLead, serviceDay } from "@/lib/hours";
+import { activeOrderCounts } from "@/lib/stall-load";
 import {
   OPEN_STATUSES,
   STALL_CANCEL_REASONS,
@@ -146,7 +147,10 @@ export async function placeOrder(rawInput: unknown): Promise<PlaceOrderResult> {
   });
   if (!stall) return { ok: false, error: "That stall is not on the court today." };
   if (stall.paused) return { ok: false, error: `${stall.name} has paused new orders for a while. Try again soon.` };
-  if (!isValidPickupSlot(input.pickupSlot, stall.openTime, stall.closeTime)) {
+  // The earliest slot follows the kitchen's current wait, as at checkout.
+  const active = (await activeOrderCounts([stall.id])).get(stall.id) ?? 0;
+  const lead = pickupLead(active, stall.prepMinutes);
+  if (!isValidPickupSlot(input.pickupSlot, stall.openTime, stall.closeTime, new Date(), lead)) {
     return {
       ok: false,
       error: `That pickup slot is no longer available at ${stall.name}. Pick another time.`,
@@ -195,6 +199,12 @@ export async function placeOrder(rawInput: unknown): Promise<PlaceOrderResult> {
   }
 
   const tokenDay = serviceDay(stall.openTime, stall.closeTime);
+  const inSlot = await prisma.order.count({
+    where: { stallId: stall.id, tokenDay, pickupSlot: input.pickupSlot, status: { not: "CANCELLED" } },
+  });
+  if (inSlot >= stall.slotCapacity) {
+    return { ok: false, error: `The ${input.pickupSlot} pickup slot at ${stall.name} just filled up. Pick another time.` };
+  }
   for (let attempt = 0; ; attempt += 1) {
     const token = randomToken();
     // Never hand out a token that an order still waiting at this stall carries,
