@@ -1,0 +1,25 @@
+# docker compose up -d   → http://<host>:43123
+# Put HTTPS in front (nginx, Caddy, a load balancer) and see "Deploying" in README.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "43123:43123"
+    volumes:
+      - food-court-data:/data
+    environment:
+      # Optional: set your own; otherwise one is generated into the volume.
+      # SESSION_SECRET: ""
+      # 1 when this sits behind one reverse proxy; then publish the port on 127.0.0.1 only.
+      TRUST_PROXY_HOPS: "0"
+      # SMS_PROVIDER: twilio
+      # TWILIO_ACCOUNT_SID: ""
+      # TWILIO_AUTH_TOKEN: ""
+      # TWILIO_FROM: ""
+      # Food court managers (by mobile number, see README):
+      # ADMIN_PHONES: "9845012345"
+      # For a demo only:
+      # DEMO_MODE: "1"
+volumes:
+  food-court-data:

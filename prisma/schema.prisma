@@ -4,7 +4,9 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  // Relative paths are relative to this folder. Defaults to file:./dev.db
+  // (written to .env by scripts/ensure-secret.mjs); Docker points it at a volume.
+  url      = env("DATABASE_URL")
 }
 
 model Stall {
