@@ -173,38 +173,48 @@ function slotFull(plan: OrderPlan) {
   };
 }
 
-async function insertOrder(plan: OrderPlan, checkoutId: string, paymentMethod: PaymentMethod, employee: Employee) {
+// A token that no order still waiting at this stall carries, even one from
+// the previous day (24-hour counters run through midnight).
+async function freeToken(stallId: string) {
   for (let attempt = 0; ; attempt += 1) {
     const token = randomToken();
-    // Never hand out a token that an order still waiting at this stall carries,
-    // even one from the previous day (24-hour counters run through midnight).
-    const inUse = await prisma.order.count({
-      where: { stallId: plan.stall.id, token, status: { in: [...OPEN_STATUSES] } },
-    });
-    if (inUse && attempt < 19) continue;
+    const inUse = await prisma.order.count({ where: { stallId, token, status: { in: [...OPEN_STATUSES] } } });
+    if (!inUse || attempt >= 19) return token;
+  }
+}
+
+// Every stall's order in one transaction, so a bag is never half placed.
+async function insertOrders(plans: OrderPlan[], checkoutId: string, paymentMethod: PaymentMethod, employee: Employee) {
+  for (let attempt = 0; ; attempt += 1) {
+    const tokens: string[] = [];
+    for (const plan of plans) tokens.push(await freeToken(plan.stall.id));
     try {
-      const order = await prisma.order.create({
-        data: {
-          token,
-          tokenDay: plan.tokenDay,
-          pickupAt: plan.pickupAt,
-          checkoutId,
-          note: plan.note,
-          employeeId: employee.employeeId,
-          employeeName: employee.name,
-          stallId: plan.stall.id,
-          status: "PLACED",
-          pickupSlot: plan.pickupSlot,
-          paymentMethod,
-          paymentRef: `${paymentMethod}-MOCK-${plan.tokenDay.replaceAll("-", "")}-${token}`,
-          totalInr: plan.totalInr,
-          items: { create: plan.lines },
-        },
-        select: { id: true },
-      });
-      return order.id;
+      const orders = await prisma.$transaction(
+        plans.map((plan, i) =>
+          prisma.order.create({
+            data: {
+              token: tokens[i],
+              tokenDay: plan.tokenDay,
+              pickupAt: plan.pickupAt,
+              checkoutId,
+              note: plan.note,
+              employeeId: employee.employeeId,
+              employeeName: employee.name,
+              stallId: plan.stall.id,
+              status: "PLACED",
+              pickupSlot: plan.pickupSlot,
+              paymentMethod,
+              paymentRef: `${paymentMethod}-MOCK-${plan.tokenDay.replaceAll("-", "")}-${tokens[i]}`,
+              totalInr: plan.totalInr,
+              items: { create: plan.lines },
+            },
+            select: { id: true },
+          }),
+        ),
+      );
+      return orders.map((order) => order.id);
     } catch (error) {
-      // Another order at this stall took the same token today: draw again.
+      // Another order at one of these stalls took the same token today: draw again.
       const clash = error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
       if (!clash || attempt >= 19) throw error;
     }
@@ -232,6 +242,7 @@ export async function placeOrder(rawInput: unknown): Promise<PlaceOrderResult> {
   if (!input) {
     return { ok: false, error: "That order did not look right. Update your bag and try again." };
   }
+  // Counts checkouts: ten in ten minutes, each up to MAX_STALLS_PER_BAG stalls.
   if (!consume(`orders:${employee.employeeId}`, 10, 10 * MINUTE).ok) {
     return { ok: false, error: "You have placed a lot of orders in a short time. Try again in a few minutes." };
   }
@@ -260,10 +271,8 @@ export async function placeOrder(rawInput: unknown): Promise<PlaceOrderResult> {
     if ((await prisma.order.count({ where: inSlot(plan) })) >= plan.stall.slotCapacity) return slotFull(plan);
   }
 
-  const checkoutId = randomUUID().replaceAll("-", "");
-  const placed: string[] = [];
+  const placed = await insertOrders(plans, randomUUID().replaceAll("-", ""), input.paymentMethod, employee);
   try {
-    for (const plan of plans) placed.push(await insertOrder(plan, checkoutId, input.paymentMethod, employee));
     for (const [i, plan] of plans.entries()) {
       if (!(await keepsPlace(placed[i], plan))) {
         // The bag is paid for in one go, so one full slot gives every stall's order back.

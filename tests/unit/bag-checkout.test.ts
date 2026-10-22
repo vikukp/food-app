@@ -93,6 +93,10 @@ describe("the bag", () => {
       ],
     );
     assert.equal(putStallLines(bagOf("a1", "b1", "c1", "d1"), momos, [{ ...dish("m1"), qty: 1 }]), null);
+    let crowded = EMPTY_CART;
+    for (let i = 0; i < MAX_LINES_PER_ORDER; i += 1) crowded = addToCart(crowded, momos, dish(`m${i}`));
+    assert.equal(putStallLines(crowded, momos, [{ ...dish("m-new"), qty: 1 }]), null);
+    assert.ok(putStallLines(crowded, momos, [{ ...dish("m0"), qty: 3 }]));
   });
 
   it("reads bags saved before stalls could mix, and drops broken ones", () => {

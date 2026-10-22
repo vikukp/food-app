@@ -23,14 +23,20 @@ export function claimDevice(owner: string) {
 // Called by a ticket that has rendered, for itself and for the tickets paid
 // for with it. Fetches the ticket's page and keeps it only if it really is that
 // ticket (a "Not found" page streams as 200 too). With onlyIfMissing, a copy
-// already kept stays as it is.
+// already kept is not fetched again, only moved to the newest end, so it is
+// not dropped before the ticket that keeps it.
 export async function keepTicket(orderId: string, { onlyIfMissing = false } = {}) {
   if (typeof window === "undefined" || !("caches" in window)) return;
   try {
     await claimed;
     const path = `/orders/${orderId}`;
     const cache = await caches.open(TICKETS);
-    if (onlyIfMissing && (await cache.match(path))) return;
+    const saved = onlyIfMissing ? await cache.match(path) : undefined;
+    if (saved) {
+      await cache.delete(path);
+      await cache.put(path, saved);
+      return;
+    }
     const response = await fetch(path, { credentials: "same-origin", cache: "no-store" });
     const html = await response.text();
     if (!response.ok || response.redirected || !html.includes(`data-ticket-id="${orderId}"`)) return;

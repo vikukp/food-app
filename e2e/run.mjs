@@ -703,6 +703,8 @@ await step("one bag from two stalls: one payment, a token per stall, and each co
     .locator("a", { hasText: tokens[0] })
     .getByText("Ready for pickup")
     .waitFor({ timeout: 12_000 });
+  await emp.getByRole("status").getByText(`${tokens[0]} at Maggi & Momos is ready.`).waitFor({ timeout: 5000 });
+  check((await emp.title()).startsWith(`Ready · ${tokens[0]}`), `tab title is "${await emp.title()}"`);
   await momos.context().close();
 
   // My orders shows one card for the payment; Order again brings back both stalls.

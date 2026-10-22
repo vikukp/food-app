@@ -12,25 +12,39 @@ import { getEmployeeSession } from "@/lib/session";
 
 export const metadata = { title: "My orders" };
 
+const LIMIT = 40;
+
 const orderDay = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" });
 
 export default async function OrdersPage() {
   const session = await getEmployeeSession();
-  const orders = session
+  const recent = session
     ? await prisma.order.findMany({
         where: { employeeId: session.employeeId },
         include: { stall: true },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        take: 40,
+        take: LIMIT,
       })
     : [];
-  // Tickets paid for together share a card, in bag order; an order on its own is a group of one.
-  const groups: (typeof orders)[] = [];
-  for (const order of orders) {
-    const last = groups.at(-1);
-    if (last && order.checkoutId && last[0].checkoutId === order.checkoutId) last.unshift(order);
-    else groups.push([order]);
+  // A checkout that the limit cut in two comes back whole.
+  const cut = recent.length === LIMIT ? recent.at(-1)?.checkoutId : null;
+  const rest =
+    session && cut
+      ? await prisma.order.findMany({
+          where: { employeeId: session.employeeId, checkoutId: cut, id: { notIn: recent.map((order) => order.id) } },
+          include: { stall: true },
+        })
+      : [];
+  // Tickets paid for together share a card, newest card first and its tickets
+  // in bag order; an order on its own is a group of one.
+  const groups = new Map<string, typeof recent>();
+  for (const order of [...recent, ...rest]) {
+    const key = order.checkoutId ?? order.id;
+    groups.set(key, [...(groups.get(key) ?? []), order]);
   }
+  const cards = [...groups.values()].map((group) =>
+    group.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id)),
+  );
 
   return (
     <div className="flex min-h-full flex-col">
@@ -56,7 +70,7 @@ export default async function OrdersPage() {
             ) : null}
           </p>
         ) : null}
-        {orders.length === 0 ? (
+        {cards.length === 0 ? (
           <div className="mt-8 rounded-xl border border-dashed bg-card p-8 text-center">
             <p className="font-medium">No orders yet.</p>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -68,7 +82,7 @@ export default async function OrdersPage() {
           </div>
         ) : (
           <ul className="mt-5 space-y-3">
-            {groups.map((group) =>
+            {cards.map((group) =>
               group.length === 1 ? (
                 <li key={group[0].id}>
                   <Link

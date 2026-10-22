@@ -14,7 +14,6 @@ import type { OrderStatusUpdate, OrderView } from "@/lib/order-view";
 import { employeeCanCancel, isOpenStatus } from "@/lib/orders";
 import { keepTicket } from "@/lib/offline-tickets";
 import { announceReady, askToNotify, canNotify } from "@/lib/ready-alert";
-import { MAX_STALLS_PER_BAG } from "@/lib/validation";
 
 export function OrderTicket({ initial }: { initial: OrderView }) {
   const [order, setOrder] = useState(initial);
@@ -32,6 +31,9 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
   const edits = useRef(0);
   const open = isOpenStatus(order.status);
   const watching = open || order.checkout.some((ticket) => isOpenStatus(ticket.status));
+  // Tickets paid for with this one that are waiting at their counter.
+  const readyElsewhere = order.checkout.filter((ticket) => ticket.id !== order.id && ticket.status === "READY");
+  const readyToken = order.status === "READY" ? order.token : readyElsewhere[0]?.token;
 
   useEffect(() => {
     // Keep a copy for when the phone loses signal at the counter, and of the
@@ -100,11 +102,11 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
 
   useEffect(() => {
     const base = document.title;
-    if (order.status === "READY") document.title = `Ready · ${order.token}`;
+    if (readyToken) document.title = `Ready · ${readyToken}`;
     return () => {
       document.title = base;
     };
-  }, [order.status, order.token]);
+  }, [readyToken]);
 
   function cancel() {
     setConfirmCancel(false);
@@ -146,7 +148,7 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
       const full = result.stalls.filter(({ stall, lines }) => !putLines(stall, lines)).map(({ stall }) => stall.name);
       if (result.skipped.length) toast.info(`Left out (not available now): ${result.skipped.join(", ")}`);
       if (full.length) {
-        toast.warning(`Your bag already has items from ${MAX_STALLS_PER_BAG} stalls, so ${full.join(" and ")} could not go in.`);
+        toast.warning(`Your bag is too full for the ${full.join(" and ")} items. Pay for or remove what is in it, then try again.`);
       }
       if (full.length < result.stalls.length) router.push("/checkout");
     });
@@ -207,6 +209,16 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
               );
             })}
           </ul>
+          <div role="status">
+            {readyElsewhere.map((ticket) => (
+              <p key={ticket.id} className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+                {ticket.token} at {ticket.stallName} is ready.{" "}
+                <a href={`/orders/${ticket.id}`} className="font-medium underline underline-offset-4">
+                  Show its ticket
+                </a>
+              </p>
+            ))}
+          </div>
         </nav>
       ) : null}
       <div

@@ -37,12 +37,17 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
   const [cardNumber, setCardNumber] = useState("4242 4242 4242 4242");
   const [submitting, setSubmitting] = useState(false);
   const [bagCheck, setBagCheck] = useState<BagCheck>({});
+  // Bumped after a failed payment, to look the bag up again.
+  const [recheck, setRecheck] = useState(0);
   const lineKey = cartLines(cart)
     .map((item) => item.menuItemId)
     .join(",");
+  const bagKey = cartLines(cart)
+    .map((item) => `${item.menuItemId}x${item.qty}`)
+    .join(",");
   // The stall whose part the last payment attempt failed on, and why. Shown
-  // until that stall gets a new slot or the bag's lines change.
-  const [problem, setProblem] = useState<{ stallId: string; error: string; lineKey: string } | null>(null);
+  // until that stall gets a new slot or anything in the bag changes.
+  const [problem, setProblem] = useState<{ stallId: string; error: string; bagKey: string } | null>(null);
 
   // Look the bag up against today's menus once it has loaded from storage.
   useEffect(() => {
@@ -69,18 +74,21 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
     };
     // Only when the set of lines changes, not on every quantity change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, lineKey]);
+  }, [hydrated, lineKey, recheck]);
 
   const parts = cart.stalls.map((bagStall) => {
     const stall = stalls[bagStall.id];
     const slots = stall?.slots ?? [];
     const open = slots.filter((slot) => !slot.full);
     const chosen = chosenSlots[bagStall.id];
+    const pickupSlot = open.some((slot) => slot.value === chosen) ? chosen : (open[0]?.value ?? "");
     return {
       bagStall,
       stall,
       slots,
-      pickupSlot: open.some((slot) => slot.value === chosen) ? chosen : (open[0]?.value ?? ""),
+      pickupSlot,
+      // The slot the employee picked, when it has filled up since.
+      moved: chosen && chosen !== pickupSlot ? chosen : null,
       unavailable: bagStall.items.filter(
         (item) => bagCheck[item.menuItemId] && bagCheck[item.menuItemId].state !== "ok",
       ),
@@ -149,10 +157,11 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
       if (!result.ok) {
         if (result.prices) setPrices(result.prices);
         if (result.stallId) {
-          setProblem({ stallId: result.stallId, error: result.error, lineKey });
+          setProblem({ stallId: result.stallId, error: result.error, bagKey });
           // Fetch the stalls' slots and pauses again: a full slot shows as full.
           router.refresh();
         }
+        setRecheck((n) => n + 1);
         toast.error(result.error, { id: "pay" });
         setSubmitting(false);
         return;
@@ -171,8 +180,9 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
-      <div className="space-y-6">
-        {parts.map(({ bagStall, slots, pickupSlot, closed }) => (
+      {/* Locked while paying, so what is paid for is what the bag shows. */}
+      <fieldset disabled={submitting} className="min-w-0 space-y-6">
+        {parts.map(({ bagStall, slots, pickupSlot, moved, closed }) => (
           <section
             key={bagStall.id}
             aria-labelledby={`stall-${bagStall.id}`}
@@ -206,7 +216,7 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
                           className="font-medium underline"
                           onClick={() => setQty(item.menuItemId, 0)}
                         >
-                          Remove
+                          Remove<span className="sr-only"> {item.name}</span>
                         </button>
                       </p>
                     ) : (
@@ -225,7 +235,7 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
                 <p className="mt-1">{closed}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" className="bg-background" onClick={() => removeStall(bagStall.id)}>
-                    Remove from bag
+                    Remove<span className="sr-only"> {bagStall.name}</span> from bag
                   </Button>
                   <Button size="sm" variant="ghost" render={<Link href="/stalls" />}>
                     See open stalls
@@ -266,8 +276,13 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
                     </button>
                   ))}
                 </div>
+                {moved && problem?.stallId !== bagStall.id ? (
+                  <p className="mt-2 text-sm text-amber-900">
+                    {moved} has filled up, so pickup is now {pickupSlot}. Pick another time if that does not suit you.
+                  </p>
+                ) : null}
                 <Label htmlFor={`note-${bagStall.id}`} className="mt-5 font-medium">
-                  Note for the kitchen (optional)
+                  Note for the kitchen<span className="sr-only"> at {bagStall.name}</span> (optional)
                 </Label>
                 <Input
                   id={`note-${bagStall.id}`}
@@ -279,7 +294,7 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
                 />
               </>
             )}
-            {problem?.stallId === bagStall.id && problem.lineKey === lineKey ? (
+            {problem?.stallId === bagStall.id && problem.bagKey === bagKey ? (
               <p role="alert" className="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-red-900">
                 {problem.error}
               </p>
@@ -345,7 +360,7 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
             </div>
           ) : null}
         </section>
-      </div>
+      </fieldset>
 
       <aside className="h-fit rounded-xl border bg-card p-4 lg:sticky lg:top-20">
         <h2 className="font-medium">{parts.length > 1 ? `${parts.length} stalls, one payment` : "Your order"}</h2>

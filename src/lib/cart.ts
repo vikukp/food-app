@@ -109,13 +109,15 @@ export function applyPrices(cart: CartState, prices: Record<string, number>): Ca
 }
 
 // "Order again": these lines at these quantities. Anything else already in
-// the bag stays. Returns null when the stall is new and the bag is full.
+// the bag stays. Returns null when they do not fit: a new stall in a bag that
+// has the most stalls, or more different dishes than one stall's order takes.
 export function putStallLines(cart: CartState, stall: { id: string; name: string }, lines: CartLine[]): CartState | null {
   const current = cart.stalls.find((s) => s.id === stall.id);
   if (!current && cart.stalls.length >= MAX_STALLS_PER_BAG) return null;
   const wanted = new Map(lines.map((line) => [line.menuItemId, { ...line, qty: clampQty(line.qty) }]));
   const kept = (current?.items ?? []).filter((line) => !wanted.has(line.menuItemId));
-  const items = [...kept, ...wanted.values()].slice(0, MAX_LINES_PER_ORDER);
+  const items = [...kept, ...wanted.values()];
+  if (items.length > MAX_LINES_PER_ORDER) return null;
   const next = { id: stall.id, name: stall.name, items };
   return current
     ? { stalls: cart.stalls.map((s) => (s.id === stall.id ? next : s)) }
