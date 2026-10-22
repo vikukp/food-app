@@ -390,7 +390,7 @@ await step("order from a stall and get a QR token", async () => {
   await emp.locator("header button:has-text('Bag')").click();
   await emp.locator("[data-slot='sheet-content'] a:has-text('Choose pickup time')").click();
   await emp.waitForURL(`${BASE}/checkout`);
-  await emp.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
+  await waitForPay(emp);
   await emp.locator("main button:has-text('Pay ₹')").click();
   await emp.waitForURL(/\/orders\/[^/]+$/);
   token = (await emp.locator("main").innerText()).match(/IWF-\d{4}/)?.[0] ?? "";
@@ -479,19 +479,36 @@ await step("changing the counter PIN signs out other tablets", async () => {
   await owner.context().close();
 });
 
-// Adds the first item on the stall page open in `page`, accepting "Start new
-// bag" if the bag holds another stall's items.
+// Adds the first item on the stall page open in `page`; returns its name.
 async function addFirstItem(page) {
-  await page.locator("main button:has-text('Add')").first().click();
-  const replace = page.getByRole("button", { name: "Start new bag" });
-  if (await replace.waitFor({ timeout: 800 }).then(() => true, () => false)) await replace.click();
+  const row = page.locator("main li").filter({ has: page.locator("button:has-text('Add')") }).first();
+  await row.getByRole("button", { name: /^Add/ }).click();
+  return (await row.locator("p.font-medium").first().innerText()).trim();
+}
+
+// Empties the bag (it lives in localStorage), then adds the first item of one stall.
+async function freshBag(page, stallId) {
+  await page.evaluate(() => {
+    for (const key of Object.keys(localStorage)) if (key.startsWith("iwf-food-cart")) localStorage.removeItem(key);
+  });
+  await page.goto(`${BASE}/stalls/${stallId}`, { waitUntil: "networkidle" });
+  return addFirstItem(page);
+}
+
+const payButton = (page) => page.locator("main aside button:has-text('Pay ₹')");
+
+// Checkout is ready to pay: the bag has loaded and nothing blocks the Pay button.
+async function waitForPay(page) {
+  await page.waitForFunction(() => {
+    const pay = [...document.querySelectorAll("main aside button")].find((b) => /Pay ₹/.test(b.textContent ?? ""));
+    return pay && !pay.disabled;
+  });
 }
 
 async function placeMomosOrder(page) {
-  await page.goto(`${BASE}/stalls/momos`, { waitUntil: "networkidle" });
-  await addFirstItem(page);
+  await freshBag(page, "momos");
   await page.goto(`${BASE}/checkout`);
-  await page.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
+  await waitForPay(page);
   await page.locator("main button:has-text('Pay ₹')").click();
   await page.waitForURL(/\/orders\/[^/]+$/);
   return (await page.locator("main").innerText()).match(/IWF-\d{4}/)?.[0] ?? "";
@@ -575,7 +592,7 @@ await step("order again refills the bag from a past order", async () => {
   await emp.waitForURL(/\/orders\/[^/]+$/);
   await emp.getByRole("button", { name: "Order again" }).click();
   await emp.waitForURL(`${BASE}/checkout`);
-  await emp.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
+  await waitForPay(emp);
   return "bag refilled, checkout ready";
 });
 
@@ -589,14 +606,14 @@ await step("a stall can pause new orders, and set its hours", async () => {
     await emp.getByText("This stall has paused new orders").waitFor({ timeout: 5000 });
     await emp.goto(`${BASE}/checkout`);
     await emp.getByText("paused new orders").waitFor({ timeout: 5000 });
-    check((await emp.locator("main button:has-text('Pay ₹')").count()) === 0, "checkout still offers Pay while paused");
+    check(await payButton(emp).isDisabled(), "checkout lets you pay while the stall is paused");
   } finally {
     await vendor.goto(`${BASE}/vendor/menu`);
     await vendor.getByRole("button", { name: "Resume orders" }).click();
     await vendor.waitForURL(/ok=resumed/);
   }
   await emp.goto(`${BASE}/checkout`);
-  await emp.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
+  await waitForPay(emp);
 
   // Opening and closing at the same minute is refused; saving the current hours works.
   const open = await vendor.inputValue("#openTime");
@@ -623,6 +640,86 @@ await step("the counter downloads today's sales as CSV", async () => {
   check(text.includes("Token,Placed (IST),Pickup,Status") && text.includes(token), "CSV is missing the header or today's order");
   await vendor.context().close();
   return `${text.trim().split("\n").length - 1} orders in ${download.suggestedFilename()}`;
+});
+
+let checkoutTicket = "";
+await step("one bag from two stalls: one payment, a token per stall, and each counter sees only its part", async () => {
+  const momosDish = await freshBag(emp, "momos");
+  await emp.goto(`${BASE}/stalls/idli`, { waitUntil: "networkidle" });
+  const idliDish = await addFirstItem(emp);
+  await emp.locator("header button:has-text('Bag')").click();
+  const sheet = emp.locator("[data-slot='sheet-content']");
+  const bag = await sheet.innerText();
+  check(bag.includes("Maggi & Momos") && bag.includes("Idli & Filter Coffee"), `the bag lost a stall: ${bag.replace(/\s+/g, " ")}`);
+  await sheet.locator("a:has-text('Choose pickup times')").click();
+  await emp.waitForURL(`${BASE}/checkout`);
+  await waitForPay(emp);
+
+  // A pickup time per stall: take the second slot at Idli.
+  check((await emp.getByRole("group", { name: /^Pickup time at / }).count()) === 2, "checkout does not ask for two pickup times");
+  const idliSlots = emp.getByRole("group", { name: "Pickup time at Idli & Filter Coffee" }).locator("button:not([disabled])");
+  const idliSlot = (await idliSlots.nth(1).innerText()).split("\n")[0];
+  await idliSlots.nth(1).click();
+  const total = (await payButton(emp).innerText()).trim();
+  await payButton(emp).click();
+  await emp.waitForURL(/\/orders\/[^/]+$/);
+  checkoutTicket = emp.url();
+
+  const strip = emp.getByRole("navigation", { name: "Tickets paid for together" });
+  await strip.waitFor({ timeout: 5000 });
+  const tokens = (await strip.innerText()).match(/IWF-\d{4}/g) ?? [];
+  check(tokens.length === 2, `expected 2 tokens, got ${tokens.join(", ")}`);
+  check((await emp.locator("h1").innerText()).trim() === tokens[0], "checkout did not land on the first stall's ticket");
+  check((await strip.innerText()).includes(`Idli & Filter Coffee · ${idliSlot}`), "the Idli ticket lost its own pickup time");
+  const idliTicket = await strip.locator("a", { hasText: tokens[1] }).getAttribute("href");
+  // Opening one ticket keeps the other for offline too.
+  let kept = false;
+  for (const end = Date.now() + 8000; !kept && Date.now() < end; await sleep(200)) {
+    kept = await emp.evaluate(async (path) => Boolean(await caches.match(path)), idliTicket);
+  }
+  check(kept, "the other ticket was not kept for offline");
+
+  // Each counter sees only its own part, under its own token.
+  const momos = await vendorSignIn("vendor-multi-momos");
+  const momosCard = momos.locator("main li", { hasText: tokens[0] });
+  await momosCard.waitFor({ timeout: 8000 });
+  const momosText = await momosCard.innerText();
+  check(momosText.includes(momosDish) && !momosText.includes(idliDish), `the Momos counter card is wrong: ${momosText.replace(/\s+/g, " ")}`);
+  check(!(await momos.locator("main").innerText()).includes(idliDish), "the Momos counter sees the Idli dish");
+  const idli = await vendorSignIn("vendor-multi-idli", "idli");
+  const idliCard = idli.locator("main li", { hasText: tokens[1] });
+  await idliCard.waitFor({ timeout: 8000 });
+  check((await idliCard.innerText()).includes(idliDish), "the Idli counter card is missing its dish");
+  await idli.context().close();
+
+  // On the Idli ticket, the Momos ticket's status follows the counter.
+  await strip.locator("a", { hasText: tokens[1] }).click();
+  await emp.waitForURL(`${BASE}${idliTicket}`);
+  check((await emp.locator("h1").innerText()).trim() === tokens[1], "the strip link opened the wrong ticket");
+  await momosCard.getByRole("button", { name: "Start preparing" }).click();
+  await momosCard.getByRole("button", { name: "Mark ready" }).click();
+  await emp
+    .getByRole("navigation", { name: "Tickets paid for together" })
+    .locator("a", { hasText: tokens[0] })
+    .getByText("Ready for pickup")
+    .waitFor({ timeout: 12_000 });
+  await emp.getByRole("status").getByText(`${tokens[0]} at Maggi & Momos is ready.`).waitFor({ timeout: 5000 });
+  check((await emp.title()).startsWith(`Ready · ${tokens[0]}`), `tab title is "${await emp.title()}"`);
+  await momos.context().close();
+
+  // My orders shows one card for the payment; Order again brings back both stalls.
+  await emp.goto(`${BASE}/orders`);
+  const card = emp.locator("main > ul > li").filter({ hasText: tokens[0] }).filter({ hasText: tokens[1] });
+  check(
+    (await card.count()) === 1 && (await card.innerText()).includes("2 stalls, paid together"),
+    "My orders does not show the two tickets as one payment",
+  );
+  await emp.goto(`${BASE}${idliTicket}`);
+  await emp.getByRole("button", { name: "Order again" }).click();
+  await emp.waitForURL(`${BASE}/checkout`);
+  await waitForPay(emp);
+  check((await emp.getByRole("group", { name: /^Pickup time at / }).count()) === 2, "Order again brought back one stall");
+  return `${tokens.join(" + ")} for ${total.replace("Pay ", "")} in one payment; each counter saw its own; order again refilled both`;
 });
 
 await step("a ticket opened once is kept for offline, and sign-out wipes it", async () => {
@@ -698,19 +795,17 @@ await step("a full pickup slot is not offered, and the queue sets the earliest s
   };
   await setCapacity(1);
   try {
-    await emp.goto(`${BASE}/stalls/idli`, { waitUntil: "networkidle" });
+    await freshBag(emp, "idli");
     check(/~\d+ min/.test(await emp.locator("main").innerText()), "no wait estimate on the stall page");
-    await addFirstItem(emp);
     await emp.goto(`${BASE}/checkout`);
-    await emp.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
-    const first = emp.locator("main section button:not([disabled])").first();
+    await waitForPay(emp);
+    const first = emp.getByRole("group", { name: /^Pickup time at / }).locator("button:not([disabled])").first();
     const slot = (await first.innerText()).split("\n")[0];
     await emp.locator("main button:has-text('Pay ₹')").click();
     await emp.waitForURL(/\/orders\/[^/]+$/);
-    await emp.goto(`${BASE}/stalls/idli`, { waitUntil: "networkidle" });
-    await addFirstItem(emp);
+    await freshBag(emp, "idli");
     await emp.goto(`${BASE}/checkout`);
-    await emp.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
+    await waitForPay(emp);
     const taken = emp.getByRole("button", { name: `${slot}, full` });
     check((await taken.count()) === 1 && (await taken.isDisabled()), `slot ${slot} is still offered after it filled`);
     return `${slot} shown as full after one order`;
@@ -752,19 +847,14 @@ await step("a stall's dietary info shows on the menu and the Jain filter uses it
   return `${name}: kcal, Jain and allergen shown; Jain filter narrows to it`;
 });
 
-await step("the bag is never replaced without asking, and a sold-out item blocks paying", async () => {
-  // Bag something from Maggi & Momos, then tap Add at another stall.
-  await emp.goto(`${BASE}/stalls/momos`, { waitUntil: "networkidle" });
-  await addFirstItem(emp);
-  const firstName = (await emp.locator("main li").first().locator("p.font-medium").innerText()).trim();
+await step("a sold-out item blocks paying until it is removed, and the rest of the bag still goes through", async () => {
+  const firstName = await freshBag(emp, "momos");
   await emp.goto(`${BASE}/stalls/idli`, { waitUntil: "networkidle" });
-  await emp.locator("main button:has-text('Add')").first().click();
-  await emp.getByRole("button", { name: "Keep bag" }).click();
+  await addFirstItem(emp);
   await emp.goto(`${BASE}/checkout`);
-  await emp.waitForFunction(() => /Pay ₹/.test(document.querySelector("main")?.innerText ?? ""));
-  check((await emp.locator("main aside").innerText()).includes("Maggi & Momos"), "the bag changed stall without a confirmation");
+  await waitForPay(emp);
 
-  // The stall sells out of it while it sits in the bag.
+  // Maggi & Momos sells out of it while it sits in the bag.
   const vendor = await vendorSignIn("vendor-soldout");
   await vendor.goto(`${BASE}/vendor/menu`);
   const item = vendor.locator("main li", { hasText: firstName }).first();
@@ -773,7 +863,15 @@ await step("the bag is never replaced without asking, and a sold-out item blocks
   try {
     await emp.reload();
     await emp.getByText("Sold out now").waitFor({ timeout: 8000 });
-    check(await emp.locator("main aside button:has-text('Pay ₹')").isDisabled(), "Pay is enabled with a sold-out item");
+    check(await payButton(emp).isDisabled(), "Pay is enabled with a sold-out item");
+    // Removing the only Maggi & Momos dish takes that stall out; Idli pays on its own.
+    await emp.getByText("Sold out now").getByRole("button", { name: "Remove" }).click();
+    await waitForPay(emp);
+    check(
+      (await emp.getByRole("group", { name: /^Pickup time at / }).count()) === 1 &&
+        !(await emp.locator("main aside").innerText()).includes("Maggi & Momos"),
+      "the emptied stall is still in the bag",
+    );
   } finally {
     await vendor.goto(`${BASE}/vendor/menu`);
     await vendor.locator("main li", { hasText: firstName }).first().getByRole("button", { name: "Back on sale" }).click();
@@ -785,7 +883,7 @@ await step("the bag is never replaced without asking, and a sold-out item blocks
   await emp.goto(`${BASE}/stalls`);
   await emp.getByLabel("Search stalls and dishes").fill(firstName.split(" ").slice(-1)[0]);
   await emp.getByText(`Has `, { exact: false }).first().waitFor({ timeout: 5000 });
-  return `kept the bag; "${firstName}" sold out blocked Pay; dish search works`;
+  return `"${firstName}" sold out blocked Pay until removed; the other stall stayed; dish search works`;
 });
 
 await step("a tampered session cookie is refused", async () => {
@@ -844,10 +942,17 @@ await step("pages pass an automated accessibility audit (axe, WCAG 2.1 AA)", asy
   const latest = await emp.goto(`${BASE}/orders`).then(() =>
     emp.locator("main a[href^='/orders/']").first().getAttribute("href"),
   );
-  for (const path of ["/stalls", "/stalls/momos", "/checkout", "/orders", latest]) {
+  for (const path of ["/stalls", "/stalls/momos", "/orders", latest, new URL(checkoutTicket).pathname]) {
     await emp.goto(`${BASE}${path}`);
     await audit(emp);
   }
+  // Checkout with a bag from two stalls.
+  await freshBag(emp, "momos");
+  await emp.goto(`${BASE}/stalls/idli`, { waitUntil: "networkidle" });
+  await addFirstItem(emp);
+  await emp.goto(`${BASE}/checkout`);
+  await waitForPay(emp);
+  await audit(emp);
 
   const vendor = await vendorSignIn("axe-vendor");
   await audit(vendor);

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { CartButton } from "@/components/cart-sheet";
 import { OrderTicket } from "@/components/order-ticket";
 import { SiteHeader } from "@/components/site-header";
-import { toOrderView } from "@/lib/order-view";
+import { checkoutOrderBy, toOrderView } from "@/lib/order-view";
 import { prisma } from "@/lib/prisma";
 import { getEmployeeSession } from "@/lib/session";
 
@@ -26,7 +26,14 @@ export default async function OrderPage({
     notFound();
   }
 
-  const view = await toOrderView(order);
+  const checkout = order.checkoutId
+    ? await prisma.order.findMany({
+        where: { checkoutId: order.checkoutId, employeeId: session.employeeId },
+        orderBy: checkoutOrderBy,
+        select: { id: true, token: true, pickupSlot: true, totalInr: true, status: true, stall: { select: { name: true } } },
+      })
+    : [];
+  const view = await toOrderView(order, checkout);
 
   return (
     <div className="flex min-h-full flex-col">

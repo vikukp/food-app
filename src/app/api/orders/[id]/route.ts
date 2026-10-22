@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getEmployeeSession } from "@/lib/session";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   const session = await getEmployeeSession();
@@ -27,6 +27,7 @@ export async function GET(
       readyAt: true,
       collectedAt: true,
       cancelledAt: true,
+      checkoutId: true,
     },
   });
   if (!order || order.employeeId !== session.employeeId) {
@@ -38,5 +39,14 @@ export async function GET(
     cancelNote: cancelNote(order),
     timeline: orderTimeline(order),
   };
+  // A ticket paid for with others asks for theirs too (?checkout), so it can
+  // say when one of them is ready.
+  if (order.checkoutId && new URL(request.url).searchParams.has("checkout")) {
+    const orders = await prisma.order.findMany({
+      where: { checkoutId: order.checkoutId, employeeId: session.employeeId },
+      select: { id: true, status: true },
+    });
+    update.checkout = orders.map((o) => ({ id: o.id, status: o.status, statusLabel: statusLabel(o.status) }));
+  }
   return NextResponse.json(update);
 }

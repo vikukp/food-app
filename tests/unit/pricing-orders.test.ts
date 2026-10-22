@@ -20,17 +20,22 @@ describe("pricing", () => {
     assert.equal(formatInr(1250), "₹1,250");
   });
 
-  it("totals the bag", () => {
+  it("totals the bag across stalls", () => {
     const cart = {
-      stallId: "momos",
-      stallName: "Momos",
-      items: [
-        { menuItemId: "a", name: "A", priceInr: 80, veg: true, qty: 2 },
-        { menuItemId: "b", name: "B", priceInr: 45, veg: false, qty: 1 },
+      stalls: [
+        {
+          id: "momos",
+          name: "Momos",
+          items: [
+            { menuItemId: "a", name: "A", priceInr: 80, veg: true, qty: 2 },
+            { menuItemId: "b", name: "B", priceInr: 45, veg: false, qty: 1 },
+          ],
+        },
+        { id: "juice", name: "Juice", items: [{ menuItemId: "c", name: "C", priceInr: 60, veg: true, qty: 1 }] },
       ],
     };
-    assert.equal(cartCount(cart), 3);
-    assert.equal(cartTotal(cart), 205);
+    assert.equal(cartCount(cart), 4);
+    assert.equal(cartTotal(cart), 265);
     assert.equal(cartTotal(EMPTY_CART), 0);
   });
 });

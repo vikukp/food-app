@@ -12,18 +12,39 @@ import { getEmployeeSession } from "@/lib/session";
 
 export const metadata = { title: "My orders" };
 
+const LIMIT = 40;
+
 const orderDay = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" });
 
 export default async function OrdersPage() {
   const session = await getEmployeeSession();
-  const orders = session
+  const recent = session
     ? await prisma.order.findMany({
         where: { employeeId: session.employeeId },
         include: { stall: true },
-        orderBy: { createdAt: "desc" },
-        take: 40,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: LIMIT,
       })
     : [];
+  // A checkout that the limit cut in two comes back whole.
+  const cut = recent.length === LIMIT ? recent.at(-1)?.checkoutId : null;
+  const rest =
+    session && cut
+      ? await prisma.order.findMany({
+          where: { employeeId: session.employeeId, checkoutId: cut, id: { notIn: recent.map((order) => order.id) } },
+          include: { stall: true },
+        })
+      : [];
+  // Tickets paid for together share a card, newest card first and its tickets
+  // in bag order; an order on its own is a group of one.
+  const groups = new Map<string, typeof recent>();
+  for (const order of [...recent, ...rest]) {
+    const key = order.checkoutId ?? order.id;
+    groups.set(key, [...(groups.get(key) ?? []), order]);
+  }
+  const cards = [...groups.values()].map((group) =>
+    group.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id)),
+  );
 
   return (
     <div className="flex min-h-full flex-col">
@@ -49,7 +70,7 @@ export default async function OrdersPage() {
             ) : null}
           </p>
         ) : null}
-        {orders.length === 0 ? (
+        {cards.length === 0 ? (
           <div className="mt-8 rounded-xl border border-dashed bg-card p-8 text-center">
             <p className="font-medium">No orders yet.</p>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -61,25 +82,56 @@ export default async function OrdersPage() {
           </div>
         ) : (
           <ul className="mt-5 space-y-3">
-            {orders.map((order) => (
-              <li key={order.id}>
-                <Link
-                  href={`/orders/${order.id}`}
-                  className="block rounded-xl border bg-card p-4 transition-shadow hover:shadow-sm"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-mono text-lg font-semibold">{order.token}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {order.stall.name} · {orderDay.format(order.createdAt)}, pickup {order.pickupSlot}
-                      </p>
+            {cards.map((group) =>
+              group.length === 1 ? (
+                <li key={group[0].id}>
+                  <Link
+                    href={`/orders/${group[0].id}`}
+                    className="block rounded-xl border bg-card p-4 transition-shadow hover:shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-mono text-lg font-semibold">{group[0].token}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {group[0].stall.name} · {orderDay.format(group[0].createdAt)}, pickup {group[0].pickupSlot}
+                        </p>
+                      </div>
+                      <Badge variant="outline">{statusLabel(group[0].status)}</Badge>
                     </div>
-                    <Badge variant="outline">{statusLabel(order.status)}</Badge>
-                  </div>
-                  <p className="mt-2 text-sm">{formatInr(order.totalInr)}</p>
-                </Link>
-              </li>
-            ))}
+                    <p className="mt-2 text-sm">{formatInr(group[0].totalInr)}</p>
+                  </Link>
+                </li>
+              ) : (
+                <li key={group[0].id} className="rounded-xl border bg-card">
+                  <p className="flex justify-between gap-3 px-4 pt-3 text-sm text-muted-foreground">
+                    <span>
+                      {orderDay.format(group[0].createdAt)} · {group.length} stalls, paid together
+                    </span>
+                    <span className="font-medium text-foreground">
+                      {formatInr(group.reduce((sum, order) => sum + order.totalInr, 0))}
+                    </span>
+                  </p>
+                  <ul className="mt-1 divide-y">
+                    {group.map((order) => (
+                      <li key={order.id}>
+                        <Link
+                          href={`/orders/${order.id}`}
+                          className="flex items-start justify-between gap-3 rounded-xl px-4 py-3 transition-colors hover:bg-muted/60"
+                        >
+                          <div>
+                            <p className="font-mono text-lg font-semibold">{order.token}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {order.stall.name} · pickup {order.pickupSlot} · {formatInr(order.totalInr)}
+                            </p>
+                          </div>
+                          <Badge variant="outline">{statusLabel(order.status)}</Badge>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ),
+            )}
           </ul>
         )}
       </main>

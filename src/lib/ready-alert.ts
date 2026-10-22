@@ -39,7 +39,8 @@ export function announceReady(token: string, stallName: string) {
   chime();
   if (canNotify() && Notification.permission === "granted" && document.visibilityState !== "visible") {
     try {
-      new Notification(`${token} is ready`, { body: `Collect it at ${stallName}.`, tag: token });
+      // Tokens repeat across stalls, so the tag names both.
+      new Notification(`${token} is ready`, { body: `Collect it at ${stallName}.`, tag: `${token}@${stallName}` });
     } catch {
       // Some mobile browsers only allow notifications from a service worker.
     }

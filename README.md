@@ -1,6 +1,6 @@
 # HPE IWF Campus Food Court
 
-HungerBox-style web app for the HPE IWF campus food court. Employees browse about 20 stalls, pick a pickup time, pay with a mock Pluxee / UPI / card checkout, and show a QR token at the counter. Stall staff see incoming orders and mark them ready.
+HungerBox-style web app for the HPE IWF campus food court. Employees browse about 20 stalls, fill one bag from one or several of them, pick a pickup time at each, pay once with a mock Pluxee / UPI / card checkout, and show a QR token at each counter. Stall staff see incoming orders and mark them ready.
 
 This is a web-first slice. Phones work in the browser (Add to Home Screen / PWA). Native iOS and Play Store apps are not included yet.
 
@@ -52,8 +52,8 @@ With `DEMO_MODE=1`:
 
 ## Try the skip-the-line flow
 
-1. Sign in as an employee and add items from one stall.
-2. Checkout: choose a 15-minute pickup slot and a mock payment method.
+1. Sign in as an employee and add items from a stall (or two: lunch from one, a juice from another).
+2. Checkout: choose a 15-minute pickup slot for each stall and a mock payment method.
 3. Keep the QR / `IWF-xxxx` token screen open.
 4. In another tab, sign in as that stall and tap **Start preparing**, then **Mark ready**.
 5. The employee token screen flips to **Ready for pickup**: the phone vibrates and chimes, the tab title changes, and a notification appears if the employee tapped **Notify me when it is ready**.
@@ -64,7 +64,8 @@ With `DEMO_MODE=1`:
 - **Wait times and slots.** Stall cards show a live wait from the kitchen queue ("Moderate · ~20 min"), and the first pickup slot moves out with it (an hour out at most). Each stall sets how many orders it can hand over per 15-minute slot; full slots are greyed out at checkout.
 - **Dietary info.** FSSAI marks (green circle veg, brown triangle non-veg), plus Egg and Jain tags, allergens and calories where the stall has added them. Menus offer Veg / No egg / Jain filters when they would narrow the list.
 - **Search** on the stall list matches dishes as well as stalls.
-- **The bag** belongs to one stall. Adding from another stall asks before starting a new bag; clearing it offers Undo. Checkout re-checks every item: anything sold out or taken off the menu since is marked and must be removed before paying, and changed prices update the total.
+- **The bag** can mix up to 4 stalls. Checkout has a card per stall with its own pickup slot and kitchen note, and one payment for everything. Each stall gets its own order and token, so its counter, queue, receipt (with that stall's GSTIN) and sales export see only its part. Paying is all or nothing: if one stall's slot fills up or it pauses while you pay, nothing is charged and checkout points at that stall. A stall that cannot take orders right now can be removed from the bag to pay for the rest. Clearing the bag offers Undo. Checkout re-checks every item: anything sold out or taken off the menu since is marked and must be removed before paying, and changed prices update the total.
+- **Tickets paid for together** link to each other at the top of the ticket, with each one's live status; the phone chimes when any of them is ready, and opening one keeps all of them for offline use. **My orders** shows them as one card, and **Order again** puts the whole bag back.
 - **Note for the kitchen** (optional, e.g. "less spicy") shows on the counter card, the ticket and the sales export.
 - **The ticket** shows Placed → Preparing → Ready → Collected with times, the stall's location, and a printable **receipt** with the GST split out of the price (`GST_RATE_PERCENT`, default 5; the stall's GSTIN if set). After collecting, employees can **rate** the order (optional); stalls show their 30-day rating once 5 people have rated.
 
@@ -172,7 +173,7 @@ Rate limits and the code-request queue are kept in process memory, so run one in
 ```bash
 npm run lint
 npm run typecheck
-npm test            # unit tests (node:test): hours and pickup slots, pricing, tokens, PINs, phones, QR, client address
+npm test            # unit tests (node:test): hours and pickup slots, pricing, the bag, checkout input, tokens, PINs, phones, QR, client address
 ```
 
 GitHub Actions (`.github/workflows/ci.yml`) runs all of these plus a production build and the browser suite on every pull request and push to `main`.
@@ -183,7 +184,7 @@ With the app running in demo mode (`DEMO_MODE=1`, then `npm run build && npm sta
 npm run test:e2e
 ```
 
-It uses your installed Google Chrome (set `CHROME_PATH` for another Chromium binary, `BASE_URL` for another server, `SCREENSHOT_DIR` to keep screenshots). It covers registration, code and PIN sign-in, lockout and unlock, resend cooldown and forgot PIN; places an order and takes it through the counter queue to collected (found by token); checks that a stale second tablet cannot skip a step, that changing the counter PIN signs out other tablets, that employees and stalls can cancel; and runs an axe accessibility audit (WCAG 2.1 AA) over every page. Each run registers new random numbers and never touches the demo employee. The suite takes about 75 seconds because it waits out the 30-second resend cooldown. Running it more than once in 15 minutes from one machine trips the PIN sign-in rate limit; restart the server to reset it.
+It uses your installed Google Chrome (set `CHROME_PATH` for another Chromium binary, `BASE_URL` for another server, `SCREENSHOT_DIR` to keep screenshots). It covers registration, code and PIN sign-in, lockout and unlock, resend cooldown and forgot PIN; places an order and takes it through the counter queue to collected (found by token); pays for a bag from two stalls and checks each counter gets only its part; checks that a stale second tablet cannot skip a step, that changing the counter PIN signs out other tablets, that employees and stalls can cancel; and runs an axe accessibility audit (WCAG 2.1 AA) over every page. Each run registers new random numbers and never touches the demo employee. The suite takes about 75 seconds because it waits out the 30-second resend cooldown. Running it more than once in 15 minutes from one machine trips the PIN sign-in rate limit; restart the server to reset it.
 
 ## Stack
 
