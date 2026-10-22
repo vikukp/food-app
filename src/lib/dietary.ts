@@ -40,3 +40,18 @@ export function allergenLabels(stored: string | null | undefined) {
 export function hasEgg(item: { veg: boolean; egg: boolean; allergens: string }) {
   return item.egg || parseAllergens(item.allergens).includes("egg");
 }
+
+// Tags the starter catalogue gives a dish, added to what the database has:
+// nothing is taken away, and Egg goes only on a non-veg dish, as in the menu
+// editor. Null when there is nothing to add.
+export function addCatalogueTags(
+  current: { veg: boolean; egg: boolean; allergens: string },
+  catalogue: { egg?: boolean; allergens?: string },
+) {
+  const have = parseAllergens(current.allergens);
+  const missing = parseAllergens(catalogue.allergens).filter((id) => !have.includes(id));
+  const egg = current.egg || (Boolean(catalogue.egg) && !current.veg);
+  if (!missing.length && egg === current.egg) return null;
+  // Sorted ids, as the menu editor stores them.
+  return { egg, allergens: [...have, ...missing].sort().join(",") };
+}
