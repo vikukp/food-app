@@ -235,7 +235,8 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
                 <p className="mt-1">{closed}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" className="bg-background" onClick={() => removeStall(bagStall.id)}>
-                    Remove<span className="sr-only"> {bagStall.name}</span> from bag
+                    {/* Hidden text last: inside the button's flex row it would add a gap. */}
+                    Remove from bag<span className="sr-only">: {bagStall.name}</span>
                   </Button>
                   <Button size="sm" variant="ghost" render={<Link href="/stalls" />}>
                     See open stalls
@@ -282,7 +283,7 @@ export function CheckoutForm({ stalls }: { stalls: Record<string, CheckoutStall>
                   </p>
                 ) : null}
                 <Label htmlFor={`note-${bagStall.id}`} className="mt-5 font-medium">
-                  Note for the kitchen<span className="sr-only"> at {bagStall.name}</span> (optional)
+                  Note for the kitchen (optional)<span className="sr-only">, {bagStall.name}</span>
                 </Label>
                 <Input
                   id={`note-${bagStall.id}`}
