@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useCart } from "@/components/cart-provider";
 import { VegDot } from "@/components/veg-dot";
 import { Button } from "@/components/ui/button";
+import { addBlocker, cartCount } from "@/lib/cart";
 import { allergenLabels, hasEgg } from "@/lib/dietary";
 import { formatInr } from "@/lib/money";
 import { effectivePrice, hasOffer, offerPercent } from "@/lib/pricing";
@@ -48,6 +49,7 @@ export function MenuList({
   items: MenuItemData[];
 }) {
   const { addItem, cart } = useCart();
+  const inBag = cart.stalls.find((s) => s.id === stall.id);
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"]>("all");
   const keep = FILTERS.find((f) => f.id === filter)!.keep;
   const shown = items.filter(keep);
@@ -92,10 +94,7 @@ export function MenuList({
             {shown
               .filter((item) => item.category === category)
               .map((item) => {
-                const qty =
-                  cart.stallId === stall.id
-                    ? cart.items.find((line) => line.menuItemId === item.id)?.qty ?? 0
-                    : 0;
+                const qty = inBag?.items.find((line) => line.menuItemId === item.id)?.qty ?? 0;
                 return (
                   <li key={item.id} className="flex items-start justify-between gap-3 p-4">
                     <div className="min-w-0">
@@ -122,37 +121,27 @@ export function MenuList({
                         variant="outline"
                         className="shrink-0"
                         onClick={() => {
-                          const line = {
+                          const blocked = addBlocker(cart, stall.id, item.id);
+                          if (blocked) {
+                            toast.error(blocked, { id: "bag-add", duration: 6000 });
+                            return;
+                          }
+                          addItem(stall, {
                             menuItemId: item.id,
                             name: item.name,
                             priceInr: effectivePrice(item),
                             veg: item.veg,
-                          };
-                          const otherStall = cart.stallId && cart.stallId !== stall.id && cart.items.length;
-                          if (otherStall) {
-                            // Never empty someone's bag on one tap: ask first.
-                            const n = cart.items.reduce((sum, l) => sum + l.qty, 0);
-                            toast.warning(`Your bag has ${n} item${n > 1 ? "s" : ""} from ${cart.stallName}`, {
-                              id: "bag-replace",
-                              description: "One stall per order. Start a new bag here?",
-                              duration: 8000,
-                              action: {
-                                label: "Start new bag",
-                                onClick: () => {
-                                  addItem(stall, line);
-                                  toast.success(`${item.name} added`, { id: "bag-add", duration: 1500 });
-                                },
-                              },
-                              cancel: { label: "Keep bag", onClick: () => {} },
-                            });
-                            return;
-                          }
-                          addItem(stall, line);
-                          const inBag = cart.items.reduce((sum, l) => sum + l.qty, 0) + 1;
+                          });
+                          const items = cartCount(cart) + 1;
+                          const stalls = cart.stalls.length + (inBag ? 0 : 1);
                           toast.success(`${item.name} added`, {
                             id: "bag-add",
-                            description: `${inBag} item${inBag > 1 ? "s" : ""} in your bag from ${stall.name}.`,
-                            duration: 1500,
+                            description:
+                              stalls > 1
+                                ? `${items} items from ${stalls} stalls. You pay once and get a token for each stall.`
+                                : `${items} item${items > 1 ? "s" : ""} in your bag from ${stall.name}.`,
+                            // Long enough to read the first time a second stall joins the bag.
+                            duration: stalls > 1 && !inBag ? 4000 : 1500,
                           });
                         }}
                       >

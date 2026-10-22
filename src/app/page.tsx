@@ -58,7 +58,7 @@ export default function HomePage() {
           <li className="rounded-xl border bg-card p-4">
             <p className="font-semibold">1. Order</p>
             <p className="mt-1 text-muted-foreground">
-              Pick a stall and items. One stall per bag, same as a real counter order.
+              Fill one bag from one stall or several. Each stall gives you its own token.
             </p>
           </li>
           <li className="rounded-xl border bg-card p-4">

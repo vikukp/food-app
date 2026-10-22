@@ -4,25 +4,33 @@ import { createContext, useCallback, useContext, useMemo, useSyncExternalStore }
 import {
   CART_STORAGE_KEY,
   EMPTY_CART,
+  addToCart,
+  applyPrices,
   cartCount,
   cartTotal,
+  parseStoredCart,
+  putStallLines,
+  removeStall as withoutStall,
+  setLineQty,
   type CartLine,
   type CartState,
 } from "@/lib/cart";
-import { MAX_QTY_PER_LINE } from "@/lib/validation";
+
+type Stall = { id: string; name: string };
 
 type CartContextValue = {
   cart: CartState;
   count: number;
   total: number;
   hydrated: boolean;
-  addItem: (
-    stall: { id: string; name: string },
-    item: Omit<CartLine, "qty">,
-  ) => { replaced: boolean };
+  // False when the bag cannot take it (see addBlocker in lib/cart).
+  addItem: (stall: Stall, item: Omit<CartLine, "qty">) => boolean;
   setQty: (menuItemId: string, qty: number) => void;
   setPrices: (prices: Record<string, number>) => void;
-  replace: (stall: { id: string; name: string }, lines: CartLine[]) => void;
+  // "Order again". False when the stall is new and the bag already holds the most stalls.
+  putLines: (stall: Stall, lines: CartLine[]) => boolean;
+  removeStall: (stallId: string) => void;
+  restore: (cart: CartState) => void;
   clear: () => void;
 };
 
@@ -51,35 +59,11 @@ function emit() {
   listeners.forEach((listener) => listener());
 }
 
-function isCartLine(value: unknown): value is CartLine {
-  if (typeof value !== "object" || value === null) return false;
-  const line = value as Record<string, unknown>;
-  return (
-    typeof line.menuItemId === "string" &&
-    typeof line.name === "string" &&
-    Number.isInteger(line.priceInr) &&
-    typeof line.veg === "boolean" &&
-    Number.isInteger(line.qty) &&
-    (line.qty as number) > 0
-  );
-}
-
-// A saved bag from an older build or a hand-edited one must not crash the header.
 function readStorage(): CartState {
   try {
-    const raw = localStorage.getItem(storageKey);
-    if (!raw) return EMPTY_CART;
-    const parsed = JSON.parse(raw) as Partial<CartState>;
-    if (typeof parsed.stallId !== "string" || typeof parsed.stallName !== "string") return EMPTY_CART;
-    if (!Array.isArray(parsed.items) || !parsed.items.every(isCartLine) || !parsed.items.length) {
-      return EMPTY_CART;
-    }
-    return {
-      stallId: parsed.stallId,
-      stallName: parsed.stallName,
-      items: parsed.items.map((line) => ({ ...line, qty: Math.min(line.qty, MAX_QTY_PER_LINE) })),
-    };
+    return parseStoredCart(localStorage.getItem(storageKey));
   } catch {
+    // Storage blocked: start empty.
     return EMPTY_CART;
   }
 }
@@ -133,63 +117,31 @@ export function CartProvider({ owner, children }: { owner: string; children: Rea
     () => false,
   );
 
-  const addItem = useCallback(
-    (stall: { id: string; name: string }, item: Omit<CartLine, "qty">) => {
-      let replaced = false;
-      const prev = getSnapshot();
-      if (prev.stallId && prev.stallId !== stall.id && prev.items.length) {
-        replaced = true;
-        writeCart({
-          stallId: stall.id,
-          stallName: stall.name,
-          items: [{ ...item, qty: 1 }],
-        });
-        return { replaced };
-      }
-      const existing = prev.items.find((line) => line.menuItemId === item.menuItemId);
-      const items = existing
-        ? prev.items.map((line) =>
-            line.menuItemId === item.menuItemId
-              ? { ...line, qty: Math.min(line.qty + 1, MAX_QTY_PER_LINE) }
-              : line,
-          )
-        : [...prev.items, { ...item, qty: 1 }];
-      writeCart({ stallId: stall.id, stallName: stall.name, items });
-      return { replaced };
-    },
-    [],
-  );
+  const addItem = useCallback((stall: Stall, item: Omit<CartLine, "qty">) => {
+    const prev = getSnapshot();
+    const next = addToCart(prev, stall, item);
+    if (next === prev) return false;
+    writeCart(next);
+    return true;
+  }, []);
 
   const setQty = useCallback((menuItemId: string, qty: number) => {
-    const prev = getSnapshot();
-    const items =
-      qty <= 0
-        ? prev.items.filter((line) => line.menuItemId !== menuItemId)
-        : prev.items.map((line) =>
-            line.menuItemId === menuItemId ? { ...line, qty: Math.min(qty, MAX_QTY_PER_LINE) } : line,
-          );
-    writeCart(items.length ? { ...prev, items } : EMPTY_CART);
+    writeCart(setLineQty(getSnapshot(), menuItemId, qty));
   }, []);
 
   const setPrices = useCallback((prices: Record<string, number>) => {
-    const prev = getSnapshot();
-    writeCart({
-      ...prev,
-      items: prev.items.map((line) =>
-        prices[line.menuItemId] === undefined ? line : { ...line, priceInr: prices[line.menuItemId] },
-      ),
-    });
+    writeCart(applyPrices(getSnapshot(), prices));
   }, []);
 
+  const putLines = useCallback((stall: Stall, lines: CartLine[]) => {
+    const next = putStallLines(getSnapshot(), stall, lines);
+    if (next) writeCart(next);
+    return next !== null;
+  }, []);
+
+  const removeStall = useCallback((stallId: string) => writeCart(withoutStall(getSnapshot(), stallId)), []);
+  const restore = useCallback((saved: CartState) => writeCart(saved), []);
   const clear = useCallback(() => writeCart(EMPTY_CART), []);
-
-  const replace = useCallback((stall: { id: string; name: string }, lines: CartLine[]) => {
-    writeCart({
-      stallId: stall.id,
-      stallName: stall.name,
-      items: lines.map((line) => ({ ...line, qty: Math.min(Math.max(1, line.qty), MAX_QTY_PER_LINE) })),
-    });
-  }, []);
 
   const value = useMemo(
     () => ({
@@ -200,10 +152,12 @@ export function CartProvider({ owner, children }: { owner: string; children: Rea
       addItem,
       setQty,
       setPrices,
-      replace,
+      putLines,
+      removeStall,
+      restore,
       clear,
     }),
-    [addItem, cart, clear, hydrated, replace, setPrices, setQty],
+    [addItem, cart, clear, hydrated, putLines, removeStall, restore, setPrices, setQty],
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

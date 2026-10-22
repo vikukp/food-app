@@ -14,6 +14,7 @@ import type { OrderStatusUpdate, OrderView } from "@/lib/order-view";
 import { employeeCanCancel, isOpenStatus } from "@/lib/orders";
 import { keepTicket } from "@/lib/offline-tickets";
 import { announceReady, askToNotify, canNotify } from "@/lib/ready-alert";
+import { MAX_STALLS_PER_BAG } from "@/lib/validation";
 
 export function OrderTicket({ initial }: { initial: OrderView }) {
   const [order, setOrder] = useState(initial);
@@ -22,17 +23,25 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
   const [reordering, startReorder] = useTransition();
   const [confirmCancel, setConfirmCancel] = useState(false);
   const router = useRouter();
-  const { replace } = useCart();
+  const { putLines } = useCart();
   const [notify, setNotify] = useState<"unsupported" | "ask" | "on" | "blocked">("unsupported");
   const lastStatus = useRef(initial.status);
+  // The other tickets paid for with this one, by id: last status seen.
+  const otherStatus = useRef(new Map(initial.checkout.map((ticket) => [ticket.id, ticket.status])));
   // Bumped on the employee's own change, so a poll already in flight cannot undo it.
   const edits = useRef(0);
   const open = isOpenStatus(order.status);
+  const watching = open || order.checkout.some((ticket) => isOpenStatus(ticket.status));
 
   useEffect(() => {
-    // Keep a copy for when the phone loses signal at the counter.
-    if (process.env.NODE_ENV === "production") void keepTicket(initial.id);
-  }, [initial.id]);
+    // Keep a copy for when the phone loses signal at the counter, and of the
+    // tickets paid for with this one (their token and QR never change).
+    if (process.env.NODE_ENV !== "production") return;
+    void keepTicket(initial.id);
+    for (const ticket of initial.checkout) {
+      if (ticket.id !== initial.id) void keepTicket(ticket.id, { onlyIfMissing: true });
+    }
+  }, [initial.id, initial.checkout]);
 
   useEffect(() => {
     if (!canNotify()) return;
@@ -44,23 +53,40 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
 
   useEffect(() => {
     // Collected and cancelled orders do not change any more.
-    if (!open) return;
+    if (!watching) return;
     let live = true;
+    const url = `/api/orders/${initial.id}${initial.checkout.length ? "?checkout" : ""}`;
     const timer = setInterval(async () => {
       const startedAt = edits.current;
       try {
-        const res = await fetch(`/api/orders/${initial.id}`, { cache: "no-store" });
+        const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) {
           setError("Could not refresh this order.");
           return;
         }
-        const data = (await res.json()) as OrderStatusUpdate;
+        const { checkout = [], ...data } = (await res.json()) as OrderStatusUpdate;
         if (!live || edits.current !== startedAt) return;
         if (data.status === "READY" && lastStatus.current !== "READY") {
           announceReady(initial.token, initial.stallName);
         }
         lastStatus.current = data.status;
-        setOrder((current) => ({ ...current, ...data }));
+        for (const update of checkout) {
+          const ticket = initial.checkout.find((t) => t.id === update.id);
+          if (!ticket || ticket.id === initial.id) continue;
+          if (update.status === "READY" && otherStatus.current.get(ticket.id) !== "READY") {
+            announceReady(ticket.token, ticket.stallName);
+          }
+          otherStatus.current.set(ticket.id, update.status);
+        }
+        setOrder((current) => ({
+          ...current,
+          ...data,
+          checkout: current.checkout.map((ticket) =>
+            ticket.id === current.id
+              ? { ...ticket, status: data.status, statusLabel: data.statusLabel }
+              : { ...ticket, ...checkout.find((update) => update.id === ticket.id) },
+          ),
+        }));
         setError(null);
       } catch {
         setError("You are offline. The token on screen is still valid.");
@@ -70,7 +96,7 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
       live = false;
       clearInterval(timer);
     };
-  }, [initial.id, initial.stallName, initial.token, open]);
+  }, [initial.id, initial.stallName, initial.token, initial.checkout, watching]);
 
   useEffect(() => {
     const base = document.title;
@@ -102,6 +128,9 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
         statusLabel: "Cancelled",
         cancelNote: "You cancelled this order.",
         timeline: [...current.timeline.filter((step) => step.at), { label: "Cancelled", at: now }],
+        checkout: current.checkout.map((ticket) =>
+          ticket.id === current.id ? { ...ticket, status: "CANCELLED", statusLabel: "Cancelled" } : ticket,
+        ),
       }));
       toast.success("Order cancelled. The mock payment was refunded.");
     });
@@ -114,9 +143,12 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
         toast.error(result.error);
         return;
       }
-      replace(result.stall, result.lines);
+      const full = result.stalls.filter(({ stall, lines }) => !putLines(stall, lines)).map(({ stall }) => stall.name);
       if (result.skipped.length) toast.info(`Left out (not available now): ${result.skipped.join(", ")}`);
-      router.push("/checkout");
+      if (full.length) {
+        toast.warning(`Your bag already has items from ${MAX_STALLS_PER_BAG} stalls, so ${full.join(" and ")} could not go in.`);
+      }
+      if (full.length < result.stalls.length) router.push("/checkout");
     });
   }
 
@@ -125,8 +157,58 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
   const cancelled = order.status === "CANCELLED";
   const collectedAt = order.timeline.find((step) => step.label === "Collected")?.at;
 
+  const paidTogether = order.checkout.reduce((sum, ticket) => sum + ticket.totalInr, 0);
+
   return (
     <div className="mx-auto max-w-md space-y-4" data-ticket-id={order.id}>
+      {order.checkout.length ? (
+        <nav aria-label="Tickets paid for together" className="rounded-xl border bg-card p-3">
+          <p className="px-1 text-xs text-muted-foreground">
+            {order.checkout.length} tickets paid for together, {formatInr(paidTogether)}. Show each one at its own
+            counter.
+          </p>
+          <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+            {order.checkout.map((ticket) => {
+              const body = (
+                <>
+                  <span className="min-w-0">
+                    <span className="block font-mono text-sm font-semibold">{ticket.token}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {ticket.stallName} · {ticket.pickupSlot}
+                    </span>
+                  </span>
+                  <span
+                    className={`shrink-0 text-xs font-medium ${ticket.status === "READY" ? "text-emerald-800" : "text-muted-foreground"}`}
+                  >
+                    {ticket.statusLabel}
+                  </span>
+                </>
+              );
+              return (
+                <li key={ticket.id}>
+                  {ticket.id === order.id ? (
+                    <span
+                      aria-current="page"
+                      className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 ring-2 ring-primary"
+                    >
+                      {body}
+                    </span>
+                  ) : (
+                    // A real page load, not app navigation: offline, the
+                    // service worker answers it with the saved copy.
+                    <a
+                      href={`/orders/${ticket.id}`}
+                      className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 ring-1 ring-border hover:bg-muted"
+                    >
+                      {body}
+                    </a>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+      ) : null}
       <div
         className={`rounded-2xl border bg-card p-5 text-center shadow-sm ${
           ready ? "ring-2 ring-emerald-600" : ""

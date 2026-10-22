@@ -20,17 +20,20 @@ export function claimDevice(owner: string) {
   if (previous && previous !== owner) claimed = caches.delete(TICKETS).then(() => undefined, () => undefined);
 }
 
-// Called by a ticket that has rendered. Fetches this page again and keeps it
-// only if it really is that ticket (a "Not found" page streams as 200 too).
-export async function keepTicket(orderId: string) {
+// Called by a ticket that has rendered, for itself and for the tickets paid
+// for with it. Fetches the ticket's page and keeps it only if it really is that
+// ticket (a "Not found" page streams as 200 too). With onlyIfMissing, a copy
+// already kept stays as it is.
+export async function keepTicket(orderId: string, { onlyIfMissing = false } = {}) {
   if (typeof window === "undefined" || !("caches" in window)) return;
   try {
     await claimed;
-    const path = location.pathname;
+    const path = `/orders/${orderId}`;
+    const cache = await caches.open(TICKETS);
+    if (onlyIfMissing && (await cache.match(path))) return;
     const response = await fetch(path, { credentials: "same-origin", cache: "no-store" });
     const html = await response.text();
     if (!response.ok || response.redirected || !html.includes(`data-ticket-id="${orderId}"`)) return;
-    const cache = await caches.open(TICKETS);
     // Keep the page's headers (its CSP nonce matches the saved HTML), minus the
     // ones that described the original compressed body.
     const headers = new Headers(response.headers);

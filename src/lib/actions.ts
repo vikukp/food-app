@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -17,6 +18,8 @@ import {
 import type { CartLine } from "@/lib/cart";
 import { effectivePrice } from "@/lib/pricing";
 import { verifyPin } from "@/lib/pin";
+import { parseCheckoutInput, type PaymentMethod, type StallOrderInput } from "@/lib/order-input";
+import { checkoutOrderBy } from "@/lib/order-view";
 import { findPickupSlot } from "@/lib/pickup-slots";
 import { verifyQrPayload } from "@/lib/qr";
 import { prisma } from "@/lib/prisma";
@@ -32,11 +35,10 @@ import {
   MAX_ITEMS_PER_ORDER,
   MAX_LINES_PER_ORDER,
   MAX_QTY_PER_LINE,
+  MAX_STALLS_PER_BAG,
   PIN_PATTERN,
-  SLOT_PATTERN,
   STALL_ID_PATTERN,
   cleanText,
-  isRecord,
   toInt,
 } from "@/lib/validation";
 import { toVendorOrder, vendorOrderInclude, type VendorOrder } from "@/lib/vendor-orders";
@@ -45,7 +47,6 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 
 const MINUTE = 60_000;
 const ORDER_ID_PATTERN = /^[a-z0-9]{10,40}$/i;
-const MAX_NOTE_LENGTH = 120;
 
 export async function loginVendor(formData: FormData) {
   const ip = await clientIp();
@@ -87,96 +88,47 @@ export async function logoutVendor() {
   redirect("/");
 }
 
-export type PlaceOrderInput = {
-  stallId: string;
+type PlaceOrderResult =
+  | { ok: true; orderIds: string[] }
+  // stallId names the stall whose part needs changing, when it is one stall's.
+  | { ok: false; error: string; prices?: Record<string, number>; stallId?: string };
+
+type Employee = { employeeId: string; name: string };
+
+type StallRecord = Prisma.StallGetPayload<{ include: { items: true } }>;
+
+// One stall's order, checked and priced, ready to insert.
+type OrderPlan = {
+  stall: StallRecord;
   pickupSlot: string;
-  paymentMethod: "PLUXEE" | "UPI" | "CARD";
-  items: { menuItemId: string; qty: number }[];
-  // What the bag showed; a mismatch means catalogue prices changed since the items were added.
-  expectedTotalInr?: number;
-  note?: string;
+  pickupAt: Date;
+  tokenDay: string;
+  note: string | null;
+  lines: { menuItemId: string; name: string; qty: number; priceInr: number; veg: boolean }[];
+  totalInr: number;
 };
 
-type PlaceOrderResult =
-  | { ok: true; orderId: string }
-  | { ok: false; error: string; prices?: Record<string, number> };
-
-function parseOrderInput(raw: unknown): PlaceOrderInput | null {
-  if (!isRecord(raw)) return null;
-  const stallId = cleanText(raw.stallId, 40);
-  const pickupSlot = cleanText(raw.pickupSlot, 5);
-  const paymentMethod = cleanText(raw.paymentMethod, 10);
-  if (!STALL_ID_PATTERN.test(stallId) || !SLOT_PATTERN.test(pickupSlot)) return null;
-  if (!["PLUXEE", "UPI", "CARD"].includes(paymentMethod)) return null;
-  if (!Array.isArray(raw.items) || raw.items.length === 0 || raw.items.length > MAX_LINES_PER_ORDER) {
-    return null;
-  }
-  const items: PlaceOrderInput["items"] = [];
-  for (const line of raw.items) {
-    if (!isRecord(line)) return null;
-    const menuItemId = cleanText(line.menuItemId, 80);
-    const qty = toInt(line.qty);
-    if (!ITEM_ID_PATTERN.test(menuItemId) || qty === null || qty < 1 || qty > MAX_QTY_PER_LINE) return null;
-    items.push({ menuItemId, qty });
-  }
-  if (new Set(items.map((line) => line.menuItemId)).size !== items.length) return null;
-  const expectedTotalInr = raw.expectedTotalInr === undefined ? undefined : toInt(raw.expectedTotalInr);
-  if (expectedTotalInr === null) return null;
-  const note = cleanText(raw.note, MAX_NOTE_LENGTH) || undefined;
-  return {
-    stallId,
-    pickupSlot,
-    paymentMethod: paymentMethod as PlaceOrderInput["paymentMethod"],
-    items,
-    expectedTotalInr,
-    note,
-  };
-}
-
-export async function placeOrder(rawInput: unknown): Promise<PlaceOrderResult> {
-  const employee = await getEmployeeSession();
-  if (!employee) {
-    return { ok: false, error: "Your sign-in has ended. Sign in again to place this order." };
-  }
-  const input = parseOrderInput(rawInput);
-  if (!input) {
-    return { ok: false, error: "That order did not look right. Update your bag and try again." };
-  }
-  if (!consume(`orders:${employee.employeeId}`, 10, 10 * MINUTE).ok) {
-    return { ok: false, error: "You have placed a lot of orders in a short time. Try again in a few minutes." };
-  }
-
-  const stall = await prisma.stall.findUnique({
-    where: { id: input.stallId },
-    include: { items: { where: { archived: false } } },
-  });
-  if (!stall) return { ok: false, error: "That stall is not on the court today." };
+function planStallOrder(
+  part: StallOrderInput,
+  stall: StallRecord | undefined,
+  activeOrders: number,
+): { ok: true; plan: OrderPlan } | { ok: false; error: string } {
+  if (!stall) return { ok: false, error: "A stall in your bag is not on the court today. Remove it and pay again." };
   if (stall.paused) return { ok: false, error: `${stall.name} has paused new orders for a while. Try again soon.` };
   // The earliest slot follows the kitchen's current wait, as at checkout.
-  const active = (await activeOrderCounts([stall.id])).get(stall.id) ?? 0;
-  const lead = pickupLead(active, stall.prepMinutes);
-  const slot = findPickupSlot(input.pickupSlot, stall.openTime, stall.closeTime, new Date(), lead);
+  const lead = pickupLead(activeOrders, stall.prepMinutes);
+  const slot = findPickupSlot(part.pickupSlot, stall.openTime, stall.closeTime, new Date(), lead);
   if (!slot) {
-    return {
-      ok: false,
-      error: `That pickup slot is no longer available at ${stall.name}. Pick another time.`,
-    };
+    return { ok: false, error: `That pickup slot is no longer available at ${stall.name}. Pick another time.` };
   }
 
   const menuById = new Map(stall.items.map((item) => [item.id, item]));
-  const lines: {
-    menuItemId: string;
-    name: string;
-    qty: number;
-    priceInr: number;
-    veg: boolean;
-  }[] = [];
+  const lines: OrderPlan["lines"] = [];
   let totalQty = 0;
-
-  for (const line of input.items) {
+  for (const line of part.items) {
     const item = menuById.get(line.menuItemId);
     if (!item) {
-      return { ok: false, error: "One item is not from this stall. Clear your bag and try again." };
+      return { ok: false, error: `An item in your bag is not on the ${stall.name} menu. Remove it and pay again.` };
     }
     if (!item.available) {
       return { ok: false, error: `${item.name} is sold out.` };
@@ -192,71 +144,140 @@ export async function placeOrder(rawInput: unknown): Promise<PlaceOrderResult> {
     });
   }
   if (totalQty > MAX_ITEMS_PER_ORDER) {
-    return { ok: false, error: `Orders are capped at ${MAX_ITEMS_PER_ORDER} items. Split it into two orders.` };
-  }
-
-  const totalInr = lines.reduce((sum, line) => sum + line.priceInr * line.qty, 0);
-  if (input.expectedTotalInr !== undefined && input.expectedTotalInr !== totalInr) {
     return {
       ok: false,
-      error: `Prices at ${stall.name} changed since you added these items. Check the new total and pay again.`,
-      prices: Object.fromEntries(lines.map((line) => [line.menuItemId, line.priceInr])),
+      error: `Each stall's order is capped at ${MAX_ITEMS_PER_ORDER} items. Take some of the ${stall.name} items out and order them separately.`,
     };
   }
+  return {
+    ok: true,
+    plan: {
+      stall,
+      pickupSlot: part.pickupSlot,
+      pickupAt: new Date(slot.at),
+      tokenDay: serviceDay(stall.openTime, stall.closeTime),
+      note: part.note ?? null,
+      lines,
+      totalInr: lines.reduce((sum, line) => sum + line.priceInr * line.qty, 0),
+    },
+  };
+}
 
-  const tokenDay = serviceDay(stall.openTime, stall.closeTime);
-  const pickupAt = new Date(slot.at);
-  const slotFull = { ok: false as const, error: `The ${input.pickupSlot} pickup slot at ${stall.name} just filled up. Pick another time.` };
-  const inSlot = { stallId: stall.id, pickupAt, status: { not: "CANCELLED" } };
-  if ((await prisma.order.count({ where: inSlot })) >= stall.slotCapacity) return slotFull;
+const inSlot = (plan: OrderPlan) => ({ stallId: plan.stall.id, pickupAt: plan.pickupAt, status: { not: "CANCELLED" } });
+
+function slotFull(plan: OrderPlan) {
+  return {
+    ok: false as const,
+    error: `The ${plan.pickupSlot} pickup slot at ${plan.stall.name} just filled up. Pick another time.`,
+    stallId: plan.stall.id,
+  };
+}
+
+async function insertOrder(plan: OrderPlan, checkoutId: string, paymentMethod: PaymentMethod, employee: Employee) {
   for (let attempt = 0; ; attempt += 1) {
     const token = randomToken();
     // Never hand out a token that an order still waiting at this stall carries,
     // even one from the previous day (24-hour counters run through midnight).
     const inUse = await prisma.order.count({
-      where: { stallId: stall.id, token, status: { in: [...OPEN_STATUSES] } },
+      where: { stallId: plan.stall.id, token, status: { in: [...OPEN_STATUSES] } },
     });
     if (inUse && attempt < 19) continue;
     try {
       const order = await prisma.order.create({
         data: {
           token,
-          tokenDay,
-          pickupAt,
-          note: input.note ?? null,
+          tokenDay: plan.tokenDay,
+          pickupAt: plan.pickupAt,
+          checkoutId,
+          note: plan.note,
           employeeId: employee.employeeId,
           employeeName: employee.name,
-          stallId: stall.id,
+          stallId: plan.stall.id,
           status: "PLACED",
-          pickupSlot: input.pickupSlot,
-          paymentMethod: input.paymentMethod,
-          paymentRef: `${input.paymentMethod}-MOCK-${tokenDay.replaceAll("-", "")}-${token}`,
-          totalInr,
-          items: {
-            create: lines,
-          },
+          pickupSlot: plan.pickupSlot,
+          paymentMethod,
+          paymentRef: `${paymentMethod}-MOCK-${plan.tokenDay.replaceAll("-", "")}-${token}`,
+          totalInr: plan.totalInr,
+          items: { create: plan.lines },
         },
         select: { id: true },
       });
-      // Two checkouts can both see the last place free. Whoever committed
-      // later gives it back, so the slot never overfills. Commit order is the
-      // SQLite rowid; createdAt is stamped before the insert and can disagree.
-      const inSlotIds = (await prisma.order.findMany({ where: inSlot, select: { id: true } })).map((o) => o.id);
-      const keep = await prisma.$queryRaw<{ id: string }[]>`
-        SELECT id FROM "Order" WHERE id IN (${Prisma.join(inSlotIds)}) ORDER BY rowid LIMIT ${stall.slotCapacity}`;
-      if (!keep.some((kept) => kept.id === order.id)) {
-        await prisma.order.delete({ where: { id: order.id } });
-        return slotFull;
-      }
-      revalidatePath("/orders");
-      revalidatePath("/vendor");
-      return { ok: true, orderId: order.id };
+      return order.id;
     } catch (error) {
       // Another order at this stall took the same token today: draw again.
       const clash = error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
       if (!clash || attempt >= 19) throw error;
     }
   }
+}
+
+// Two checkouts can both see the last place free. Whoever committed later
+// gives it back, so the slot never overfills. Commit order is the SQLite
+// rowid; createdAt is stamped before the insert and can disagree.
+async function keepsPlace(orderId: string, plan: OrderPlan) {
+  const inSlotIds = (await prisma.order.findMany({ where: inSlot(plan), select: { id: true } })).map((o) => o.id);
+  const keep = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "Order" WHERE id IN (${Prisma.join(inSlotIds)}) ORDER BY rowid LIMIT ${plan.stall.slotCapacity}`;
+  return keep.some((kept) => kept.id === orderId);
+}
+
+// Pays for the whole bag: one order per stall, each with its own token and
+// pickup slot. Either every stall's order is placed or none is.
+export async function placeOrder(rawInput: unknown): Promise<PlaceOrderResult> {
+  const employee = await getEmployeeSession();
+  if (!employee) {
+    return { ok: false, error: "Your sign-in has ended. Sign in again to place this order." };
+  }
+  const input = parseCheckoutInput(rawInput);
+  if (!input) {
+    return { ok: false, error: "That order did not look right. Update your bag and try again." };
+  }
+  if (!consume(`orders:${employee.employeeId}`, 10, 10 * MINUTE).ok) {
+    return { ok: false, error: "You have placed a lot of orders in a short time. Try again in a few minutes." };
+  }
+
+  const stallIds = input.stalls.map((part) => part.stallId);
+  const [stalls, active] = await Promise.all([
+    prisma.stall.findMany({ where: { id: { in: stallIds } }, include: { items: { where: { archived: false } } } }),
+    activeOrderCounts(stallIds),
+  ]);
+  const plans: OrderPlan[] = [];
+  const repriced: OrderPlan[] = [];
+  for (const part of input.stalls) {
+    const planned = planStallOrder(part, stalls.find((stall) => stall.id === part.stallId), active.get(part.stallId) ?? 0);
+    if (!planned.ok) return { ...planned, stallId: part.stallId };
+    if (part.expectedTotalInr !== undefined && part.expectedTotalInr !== planned.plan.totalInr) repriced.push(planned.plan);
+    plans.push(planned.plan);
+  }
+  if (repriced.length) {
+    return {
+      ok: false,
+      error: `Prices at ${repriced.map((plan) => plan.stall.name).join(" and ")} changed since you added these items. Check the new total and pay again.`,
+      prices: Object.fromEntries(repriced.flatMap((plan) => plan.lines.map((line) => [line.menuItemId, line.priceInr]))),
+    };
+  }
+  for (const plan of plans) {
+    if ((await prisma.order.count({ where: inSlot(plan) })) >= plan.stall.slotCapacity) return slotFull(plan);
+  }
+
+  const checkoutId = randomUUID().replaceAll("-", "");
+  const placed: string[] = [];
+  try {
+    for (const plan of plans) placed.push(await insertOrder(plan, checkoutId, input.paymentMethod, employee));
+    for (const [i, plan] of plans.entries()) {
+      if (!(await keepsPlace(placed[i], plan))) {
+        // The bag is paid for in one go, so one full slot gives every stall's order back.
+        await prisma.order.deleteMany({ where: { id: { in: placed } } });
+        return slotFull(plan);
+      }
+    }
+  } catch (error) {
+    await prisma.order.deleteMany({ where: { id: { in: placed } } }).catch(() => {});
+    throw error;
+  }
+  revalidatePath("/orders");
+  revalidatePath("/vendor");
+  return { ok: true, orderIds: placed };
 }
 
 // The counter sends the status it was showing, so a second tablet (or a stale
@@ -409,11 +430,11 @@ export async function lookupVendorOrder(rawQuery: unknown): Promise<LookupResult
 }
 
 type ReorderResult =
-  | { ok: true; stall: { id: string; name: string }; lines: CartLine[]; skipped: string[] }
+  | { ok: true; stalls: { stall: { id: string; name: string }; lines: CartLine[] }[]; skipped: string[] }
   | { ok: false; error: string };
 
 // "Order again": the same items at today's prices, leaving out anything sold
-// out or taken off the menu since.
+// out or taken off the menu since. Orders paid for together come back together.
 export async function reorderLines(rawOrderId: unknown): Promise<ReorderResult> {
   const employee = await getEmployeeSession();
   if (!employee) return { ok: false, error: "Your sign-in has ended. Sign in again." };
@@ -421,28 +442,40 @@ export async function reorderLines(rawOrderId: unknown): Promise<ReorderResult> 
   if (!ORDER_ID_PATTERN.test(orderId)) return { ok: false, error: "Order not found." };
   const order = await prisma.order.findFirst({
     where: { id: orderId, employeeId: employee.employeeId },
-    include: { stall: { select: { id: true, name: true } }, items: { include: { menuItem: true } } },
+    select: { id: true, checkoutId: true },
   });
   if (!order) return { ok: false, error: "Order not found." };
+  const orders = await prisma.order.findMany({
+    where: {
+      employeeId: employee.employeeId,
+      ...(order.checkoutId ? { checkoutId: order.checkoutId } : { id: order.id }),
+    },
+    orderBy: checkoutOrderBy,
+    include: { stall: { select: { id: true, name: true } }, items: { include: { menuItem: true } } },
+  });
 
-  const lines: CartLine[] = [];
+  const stalls: { stall: { id: string; name: string }; lines: CartLine[] }[] = [];
   const skipped: string[] = [];
-  for (const line of order.items) {
-    const item = line.menuItem;
-    if (item.archived || !item.available) {
-      skipped.push(line.name);
-      continue;
+  for (const past of orders) {
+    const lines: CartLine[] = [];
+    for (const line of past.items) {
+      const item = line.menuItem;
+      if (item.archived || !item.available) {
+        skipped.push(line.name);
+        continue;
+      }
+      lines.push({
+        menuItemId: item.id,
+        name: item.name,
+        priceInr: effectivePrice(item),
+        veg: item.veg,
+        qty: Math.min(line.qty, MAX_QTY_PER_LINE),
+      });
     }
-    lines.push({
-      menuItemId: item.id,
-      name: item.name,
-      priceInr: effectivePrice(item),
-      veg: item.veg,
-      qty: Math.min(line.qty, MAX_QTY_PER_LINE),
-    });
+    if (lines.length) stalls.push({ stall: past.stall, lines });
   }
-  if (!lines.length) return { ok: false, error: "None of those items are on the menu right now." };
-  return { ok: true, stall: order.stall, lines, skipped };
+  if (!stalls.length) return { ok: false, error: "None of those items are on the menu right now." };
+  return { ok: true, stalls, skipped };
 }
 
 // Feedback is optional and once per order, after it has been collected.
@@ -467,14 +500,16 @@ export async function rateOrder(rawOrderId: unknown, rawRating: unknown, rawComm
 export type BagCheck = Record<string, { state: "ok" | "soldout" | "gone"; priceInr?: number }>;
 
 // Checkout looks the bag up again: items can sell out, be hidden or change
-// price after they were added (the bag lives in the browser).
-export async function checkBag(rawStallId: unknown, rawIds: unknown): Promise<BagCheck> {
+// price after they were added (the bag lives in the browser). By menu item id;
+// ids are unique across stalls.
+export async function checkBag(rawIds: unknown): Promise<BagCheck> {
   // Menus are behind sign-in like the pages that show them.
   if (!(await getEmployeeSession())) return {};
-  const stallId = cleanText(rawStallId, 40);
-  const ids = Array.isArray(rawIds) ? rawIds.slice(0, MAX_LINES_PER_ORDER).map((id) => cleanText(id, 80)) : [];
-  if (!STALL_ID_PATTERN.test(stallId) || !ids.every((id) => ITEM_ID_PATTERN.test(id))) return {};
-  const items = await prisma.menuItem.findMany({ where: { stallId, id: { in: ids } } });
+  const ids = Array.isArray(rawIds)
+    ? rawIds.slice(0, MAX_STALLS_PER_BAG * MAX_LINES_PER_ORDER).map((id) => cleanText(id, 80))
+    : [];
+  if (!ids.every((id) => ITEM_ID_PATTERN.test(id))) return {};
+  const items = await prisma.menuItem.findMany({ where: { id: { in: ids } } });
   const byId = new Map(items.map((item) => [item.id, item]));
   return Object.fromEntries(
     ids.map((id) => {

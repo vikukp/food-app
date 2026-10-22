@@ -40,8 +40,8 @@ export default async function CheckoutPage() {
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">
         <h1 className="text-2xl font-semibold tracking-tight">Pickup and pay</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Choose when you will reach the stall (campus time, IST). Payment is mocked — nothing is
-          charged.
+          Choose when you will reach each counter (campus time, IST). Every stall in your bag gives you its own
+          token. Payment is mocked — nothing is charged.
         </p>
         <div className="mt-6">
           <CheckoutForm stalls={stallsById} />

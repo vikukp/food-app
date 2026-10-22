@@ -48,11 +48,53 @@ export type OrderView = {
   createdAt: string;
   items: { id: string; name: string; qty: number; priceInr: number; veg: boolean }[];
   qrDataUrl: string;
+  // Every ticket paid for in the same checkout, this one included, in bag
+  // order. Empty when the order was the only one.
+  checkout: CheckoutTicket[];
+};
+
+export type CheckoutTicket = {
+  id: string;
+  token: string;
+  stallName: string;
+  pickupSlot: string;
+  totalInr: number;
+  status: string;
+  statusLabel: string;
 };
 
 export type TimelineStep = { label: string; at: string | null };
 
-export type OrderStatusUpdate = Pick<OrderView, "status" | "statusLabel" | "cancelNote" | "timeline">;
+export type OrderStatusUpdate = Pick<OrderView, "status" | "statusLabel" | "cancelNote" | "timeline"> & {
+  // Live status of the checkout's tickets, when the poll asked for them.
+  checkout?: Pick<CheckoutTicket, "id" | "status" | "statusLabel">[];
+};
+
+type CheckoutRecord = {
+  id: string;
+  token: string;
+  pickupSlot: string;
+  totalInr: number;
+  status: string;
+  stall: { name: string };
+};
+
+// A checkout's orders in the order they were placed, which is bag order. The
+// id (a cuid, so increasing) settles two stamped in the same millisecond.
+export const checkoutOrderBy = [{ createdAt: "asc" as const }, { id: "asc" as const }];
+
+export function toCheckoutTickets(orders: CheckoutRecord[]): CheckoutTicket[] {
+  if (orders.length < 2) return [];
+  return orders.map((order) => ({
+    id: order.id,
+    token: order.token,
+    stallName: order.stall.name,
+    pickupSlot: order.pickupSlot,
+    totalInr: order.totalInr,
+    status: order.status,
+    statusLabel: statusLabel(order.status),
+  }));
+}
 
 type Stamps = Pick<OrderRecord, "status" | "createdAt" | "preparingAt" | "readyAt" | "collectedAt" | "cancelledAt">;
 
@@ -81,7 +123,7 @@ export function cancelNote(order: { status: string; cancelledBy: string | null; 
   return `The stall cancelled this order${order.cancelReason ? `: ${order.cancelReason.toLowerCase()}` : ""}.`;
 }
 
-export async function toOrderView(order: OrderRecord): Promise<OrderView> {
+export async function toOrderView(order: OrderRecord, checkout: CheckoutRecord[] = []): Promise<OrderView> {
   const payload = await buildQrPayload(order.token, order.id);
   const qrDataUrl = await QRCode.toDataURL(payload, {
     margin: 1,
@@ -109,5 +151,6 @@ export async function toOrderView(order: OrderRecord): Promise<OrderView> {
     createdAt: order.createdAt.toISOString(),
     items: order.items,
     qrDataUrl,
+    checkout: toCheckoutTickets(checkout),
   };
 }
