@@ -149,6 +149,7 @@ A checklist for running this for real, on one server:
 5. **Stall PINs.** The first build on an empty database prints a random PIN per stall. Hand each to its stall; they can change it under **Menu**. If the database was created in demo mode, the build warns about every stall still on the demo PIN.
 6. **Admins.** Set `ADMIN_PHONES` to the food court managers' mobile numbers.
 7. **Data.** SQLite lives in `prisma/dev.db`; back it up (e.g. `sqlite3 prisma/dev.db ".backup backup.db"`) and keep it on persistent disk. `npm run build` applies schema changes with `prisma db push` and never removes vendor edits.
+   - **A database from before dietary tags** has no Egg tags on the starter dishes, because the seed only tags dishes it creates. `npm run db:tag-dietary` lists what the starter menu would add; `npm run db:tag-dietary -- --apply` writes it. In Docker, use `docker compose exec app npm run db:tag-dietary -- --apply`. It only adds tags, and leaves alone (and lists) any dish its stall has renamed or re-described.
 8. **Before employees use it:** connect registration to the HR directory or HPE SSO (names and IDs are not checked today), and replace the mock payment with the real Pluxee / UPI gateway.
 
 Rate limits and the code-request queue are kept in process memory, so run one instance. To scale out, move them to Redis and the database to Postgres.
