@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useCart } from "@/components/cart-provider";
+import { QtyStepper } from "@/components/qty-stepper";
 import { VegDot } from "@/components/veg-dot";
 import { Button } from "@/components/ui/button";
 import { addBlocker, cartCount } from "@/lib/cart";
@@ -60,7 +61,7 @@ export function MenuList({
   const filters = FILTERS.filter((f) => f.id === "all" || (items.some(f.keep) && !items.every(f.keep)));
 
   return (
-    <div className="space-y-8 pb-24 md:pb-8">
+    <div className="space-y-8 pb-24">
       {filters.length > 1 ? (
         <div role="group" aria-label="Filter the menu" className="flex flex-wrap gap-2">
           {filters.map((f) => (
@@ -117,10 +118,11 @@ export function MenuList({
                       )}
                     </div>
                     {item.available ? (
-                      <Button
-                        variant="outline"
-                        className="shrink-0"
-                        onClick={() => {
+                      <AddOrStepper
+                        menuItemId={item.id}
+                        name={item.name}
+                        qty={qty}
+                        onAdd={() => {
                           const blocked = addBlocker(cart, stall.id, item.id);
                           if (blocked) {
                             toast.error(blocked, { id: "bag-add", duration: 6000 });
@@ -144,9 +146,7 @@ export function MenuList({
                             duration: stalls > 1 && !inBag ? 4000 : 1500,
                           });
                         }}
-                      >
-                        {qty > 0 ? `Add · ${qty}` : "Add"}
-                      </Button>
+                      />
                     ) : (
                       <span className="shrink-0 text-xs font-medium text-muted-foreground">
                         Sold out
@@ -179,5 +179,56 @@ function DietaryLine({ item }: { item: MenuItemData }) {
       ))}
       {allergens.length ? <span className="text-muted-foreground">Contains {allergens.join(", ").toLowerCase()}</span> : null}
     </p>
+  );
+}
+
+// "Add" until the dish is in the bag, then − qty + in its place. When one
+// replaces the other under the person's own click, focus moves to the new
+// control so a keyboard user keeps their place in the menu.
+function AddOrStepper({
+  menuItemId,
+  name,
+  qty,
+  onAdd,
+}: {
+  menuItemId: string;
+  name: string;
+  qty: number;
+  onAdd: () => void;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const swapping = useRef(false);
+  const inBag = qty > 0;
+
+  useEffect(() => {
+    if (!swapping.current) return;
+    swapping.current = false;
+    const buttons = box.current?.querySelectorAll("button");
+    // The stepper's +, or Add again after − took the last one out.
+    buttons?.[inBag ? buttons.length - 1 : 0]?.focus();
+  }, [inBag]);
+
+  return (
+    <div
+      ref={box}
+      className="shrink-0"
+      onClickCapture={(event) => {
+        // Add, or − on the last one: the only clicks that swap the control.
+        const button = (event.target as HTMLElement).closest("button");
+        swapping.current = !inBag || (qty === 1 && button === box.current?.querySelector("button"));
+        // The swap renders before this runs; a refused Add leaves nothing to swap.
+        setTimeout(() => {
+          swapping.current = false;
+        });
+      }}
+    >
+      {inBag ? (
+        <QtyStepper menuItemId={menuItemId} name={name} qty={qty} />
+      ) : (
+        <Button variant="outline" onClick={onAdd}>
+          Add
+        </Button>
+      )}
+    </div>
   );
 }

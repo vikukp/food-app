@@ -1,6 +1,8 @@
+import Link from "next/link";
 import { CartButton } from "@/components/cart-sheet";
 import { CheckoutForm, type CheckoutStall } from "@/components/checkout-form";
 import { SiteHeader } from "@/components/site-header";
+import { Button } from "@/components/ui/button";
 import { slotsWithRoom } from "@/lib/stall-load";
 import { prisma } from "@/lib/prisma";
 import { getEmployeeSession } from "@/lib/session";
@@ -38,6 +40,9 @@ export default async function CheckoutPage() {
     <div className="flex min-h-full flex-col">
       <SiteHeader variant="employee" name={session?.name} right={<CartButton />} />
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">
+        <Button variant="ghost" size="sm" className="-ml-2 mb-3" render={<Link href="/stalls" />}>
+          ← Back to stalls
+        </Button>
         <h1 className="text-2xl font-semibold tracking-tight">Pickup and pay</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Choose when you will reach each counter (campus time, IST). Every stall in your bag gives you its own

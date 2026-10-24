@@ -37,7 +37,7 @@ export default async function OrderPage({
 
   return (
     <div className="flex min-h-full flex-col">
-      <SiteHeader variant="employee" name={session.name} right={<CartButton />} />
+      <SiteHeader variant="employee" name={session.name} current="orders" right={<CartButton />} />
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
         <OrderTicket initial={view} />
       </main>

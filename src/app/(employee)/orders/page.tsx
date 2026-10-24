@@ -48,7 +48,7 @@ export default async function OrdersPage() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <SiteHeader variant="employee" name={session?.name} right={<CartButton />} />
+      <SiteHeader variant="employee" name={session?.name} current="orders" right={<CartButton />} />
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
         <h1 className="text-2xl font-semibold tracking-tight">My orders</h1>
         <p className="mt-1 text-sm text-muted-foreground">

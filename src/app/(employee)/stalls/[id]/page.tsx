@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CartButton, MobileCartBar } from "@/components/cart-sheet";
+import { CartBar, CartButton } from "@/components/cart-sheet";
 import { MenuList } from "@/components/menu-list";
 import { SiteHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
@@ -42,7 +42,7 @@ export default async function StallPage({
 
   return (
     <div className="flex min-h-full flex-col">
-      <SiteHeader variant="employee" name={session?.name} right={<CartButton />} />
+      <SiteHeader variant="employee" name={session?.name} current="stalls" right={<CartButton />} />
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
         <Button variant="ghost" size="sm" className="-ml-2 mb-3" render={<Link href="/stalls" />}>
           ← All stalls
@@ -91,7 +91,7 @@ export default async function StallPage({
           />
         </div>
       </main>
-      <MobileCartBar />
+      <CartBar />
     </div>
   );
 }
