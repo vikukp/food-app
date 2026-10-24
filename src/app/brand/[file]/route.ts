@@ -1,6 +1,8 @@
 import { BRAND_ICONS, brandLogo, logoFile, type BrandIcon } from "@/lib/brand";
 import { drawBrandIcon } from "@/lib/brand-icons";
 
+export const dynamic = "force-dynamic";
+
 // The logo from the brand settings (src/lib/brand.ts) and the icons drawn from
 // it. Pages link here with ?v=<version>: the current version can be cached for
 // good, anything else is checked again next time.
