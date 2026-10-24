@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { LogOutIcon } from "lucide-react";
 import { logoutVendor } from "@/lib/actions";
+import { brandAssetUrl, brandLogo, brandNames, logoFile } from "@/lib/brand";
 import { buttonVariants } from "@/components/ui/button";
 
 type Props = {
@@ -46,6 +47,8 @@ function SignOutLabel() {
 }
 
 export function SiteHeader({ variant, name, stallName, current, right }: Props) {
+  const brand = brandNames();
+  const logo = brandLogo();
   return (
     <header className="sticky top-0 z-40 border-b border-emerald-900/10 bg-[#0b3d32] text-white">
       <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-2 px-4 sm:gap-3">
@@ -53,14 +56,23 @@ export function SiteHeader({ variant, name, stallName, current, right }: Props) 
           href={variant === "vendor" ? "/vendor" : variant === "employee" ? "/stalls" : "/"}
           className="flex min-w-0 items-center gap-2"
         >
+          {/* An SVG logo as it is; a PNG one at a size made for this, not the whole upload. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/icon.svg" alt="" width={28} height={28} className="size-7 shrink-0" />
+          <img
+            src={brandAssetUrl(logo, logo.type === "image/svg+xml" ? logoFile(logo) : "icon-192.png")}
+            alt=""
+            width={28}
+            height={28}
+            className="size-7 shrink-0 object-contain"
+          />
           {/* Beside the employee links, the smallest phones only have room for the logo. */}
           <div className={variant === "employee" ? "min-w-0 max-[359px]:sr-only" : "min-w-0"}>
-            <p className="truncate text-[11px] font-medium tracking-[0.1em] text-emerald-100/80 uppercase sm:tracking-[0.18em]">
-              Campus
-            </p>
-            <p className="truncate text-sm font-semibold tracking-tight">Food Court</p>
+            {brand.headerTop ? (
+              <p className="truncate text-[11px] font-medium tracking-[0.1em] text-emerald-100/80 uppercase sm:tracking-[0.18em]">
+                {brand.headerTop}
+              </p>
+            ) : null}
+            <p className="truncate text-sm font-semibold tracking-tight">{brand.headerMain}</p>
           </div>
         </Link>
         <div className="flex items-center gap-1 sm:gap-2">

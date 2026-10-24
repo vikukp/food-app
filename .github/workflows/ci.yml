@@ -73,10 +73,23 @@ jobs:
         run: docker build -t campus-food-court .
       - name: Start it and check it answers
         run: |
-          docker run -d --name app -p 43123:43123 -e DEMO_MODE=1 campus-food-court
+          docker run -d --name app -p 43123:43123 -e DEMO_MODE=1 -e BRAND_NAME="Acme Check Food Court" -e BRAND_LOGO=/data/ci-logo.svg campus-food-court
           for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:43123/ && break; sleep 1; done
           curl -sf http://127.0.0.1:43123/enter | grep -q "Sign in to order" || { docker logs app; exit 1; }
           docker exec app test -s /data/session-secret
+      - name: The brand settings apply to the built image
+        run: |
+          curl -sf http://127.0.0.1:43123/enter | grep -q "Acme Check Food Court</title>"
+          curl -sf http://127.0.0.1:43123/manifest.webmanifest | grep -q "Acme Check Food Court"
+          # The logo file is not there yet: the log says so and the built-in logo stands in.
+          docker logs app 2>&1 | grep -q 'BRAND_LOGO="/data/ci-logo.svg" was not found'
+          # Once it is, it is used without a restart, for the favicon too.
+          docker exec app sh -c 'echo "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><rect width=\"8\" height=\"8\" fill=\"#c00\"/></svg>" > /data/ci-logo.svg'
+          curl -sf http://127.0.0.1:43123/brand/logo.svg | grep -q 'fill="#c00"'
+          icon=$(curl -sf http://127.0.0.1:43123/enter | grep -o '/brand/icon-32.png?v=[0-9a-f]*' | head -1)
+          curl -sf "http://127.0.0.1:43123$icon" -o icon.png
+          curl -sf http://127.0.0.1:43123/favicon.ico -o favicon.png
+          cmp icon.png favicon.png
       - name: The dietary tag script runs in the image
         run: |
           docker exec app npm run -s db:tag-dietary | tee tag-dietary.log

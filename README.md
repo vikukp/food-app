@@ -104,7 +104,7 @@ With `DEMO_MODE=1`:
 
 Any other value, missing Twilio credentials, an HTTP error or a 10-second timeout fails closed: no code is issued and the employee is asked to try again or use their PIN. `OTP_DAILY_LIMIT` (default 2000) caps texts per rolling 24 hours across the whole app.
 
-SMS to Indian numbers requires a DLT-registered sender ID and message template. The message is: `123456 is your Campus Food Court sign-in code. Valid for 5 minutes. Do not share it with anyone.`
+SMS to Indian numbers requires a DLT-registered sender ID and message template. The message is: `123456 is your Campus Food Court sign-in code. Valid for 5 minutes. Do not share it with anyone.`, with your `BRAND_NAME` (see Branding).
 
 ## Vendor catalogue
 
@@ -129,6 +129,34 @@ Employees whose mobile number is listed in `ADMIN_PHONES` (comma-separated, e.g.
 ## Hours
 
 Stall hours are campus time (IST). Most stalls serve lunch through the evening, a few (Idli & Filter Coffee, Sandwich & Wrap Lab, Maggi & Momos) run 24x7, and the biryani / meals counters are lunch-only. Pickup slots are 15-minute windows from about 10 minutes out until the stall closes, so the demo works at any hour. Hours may cross midnight (e.g. `18:00`–`02:00`): the stall is open on both sides of midnight and takes slots up to closing.
+
+## Branding
+
+Each company runs its own copy, named with these settings in the environment, `.env.production` or `docker-compose.yml`. They are read while the app runs, so a restart applies them; no rebuild.
+
+| Setting | Default | What it sets |
+| --- | --- | --- |
+| `BRAND_NAME` | `Campus Food Court` | Page titles, the header, receipts, the counter display and the sign-in SMS. Up to 60 characters. |
+| `BRAND_SHORT_NAME` | `Food Court`, or `BRAND_NAME` when only that is set | The name under the icon on a phone's home screen; about 12 characters fit. |
+| `BRAND_LOGO` | `brand/logo.svg` | A square SVG or PNG, 512 × 512 px or larger, up to 1 MB; a path on the server, absolute or from the app folder. Shown in the header; the browser-tab and home-screen icons are drawn from it. |
+| `BRAND_LOGO_BACKGROUND` | `#0b3d32` | The colour around the logo on home-screen icons, which cannot be transparent. In `.env` files write it in quotes (`"#ffffff"`): an unquoted `#` starts a comment. |
+
+- When `BRAND_NAME` ends with `BRAND_SHORT_NAME`, the header shows the rest in small capitals above it (ACME PUNE over Food Court); otherwise `BRAND_NAME` on one line.
+- A logo file that is missing, too big or not an SVG or PNG is named in the server log, and the built-in logo is used instead. Replacing the file takes effect without a restart.
+- The sign-in SMS carries `BRAND_NAME`, so each company registers its own DLT template.
+- Phones keep the icon and name they had when the app was added to the home screen; remove it and add it again to see a change.
+
+In Docker, mount the logo and set the names in `docker-compose.yml`, then `docker compose up -d`:
+
+```yaml
+    environment:
+      BRAND_NAME: "Acme Pune Food Court"
+      BRAND_SHORT_NAME: "Food Court"
+      BRAND_LOGO: /brand/logo.png
+    volumes:
+      - food-court-data:/data
+      - ./acme-logo.png:/brand/logo.png:ro
+```
 
 ## Docker
 
