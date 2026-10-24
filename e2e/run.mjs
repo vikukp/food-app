@@ -540,8 +540,9 @@ async function placeMomosOrder(page) {
   return (await page.locator("main").innerText()).match(/IWF-\d{4}/)?.[0] ?? "";
 }
 
-await step("an employee can cancel before the kitchen starts", async () => {
+await step("an employee can cancel in the first 30 seconds, before the kitchen starts", async () => {
   const cancelToken = await placeMomosOrder(emp);
+  await emp.getByText(/You can cancel for \d+ more seconds?\./).waitFor({ timeout: 5000 });
   await emp.getByRole("button", { name: "Cancel order" }).click();
   await emp.getByRole("button", { name: "Yes, cancel it" }).click();
   await emp.getByText("You cancelled this order.").waitFor({ timeout: 8000 });
@@ -746,6 +747,26 @@ await step("one bag from two stalls: one payment, a token per stall, and each co
   await waitForPay(emp);
   check((await emp.getByRole("group", { name: /^Pickup time at / }).count()) === 2, "Order again brought back one stall");
   return `${tokens.join(" + ")} for ${total.replace("Pay ", "")} in one payment; each counter saw its own; order again refilled both`;
+});
+
+await step("in the first 30 seconds, every ticket from one payment can be cancelled at once", async () => {
+  await freshBag(emp, "momos");
+  await emp.goto(`${BASE}/stalls/idli`, { waitUntil: "networkidle" });
+  await addFirstItem(emp);
+  await emp.goto(`${BASE}/checkout`);
+  await waitForPay(emp);
+  await payButton(emp).click();
+  await emp.waitForURL(/\/orders\/[^/]+$/);
+  await emp.getByRole("button", { name: "Cancel order" }).click();
+  await emp.getByRole("button", { name: "Cancel all 2 tickets" }).click();
+  await emp.getByText("You cancelled this order.").waitFor({ timeout: 8000 });
+  const strip = emp.getByRole("navigation", { name: "Tickets paid for together" });
+  const cancelled = (await strip.innerText()).match(/Cancelled/g)?.length ?? 0;
+  check(cancelled === 2, `${cancelled} of 2 tickets show as cancelled`);
+  // The other ticket is cancelled on the server too, not just on this screen.
+  await strip.locator("a").first().click();
+  await emp.getByText("You cancelled this order.").waitFor({ timeout: 8000 });
+  return "both tickets cancelled from one ticket";
 });
 
 await step("a ticket opened once is kept for offline, and sign-out wipes it", async () => {

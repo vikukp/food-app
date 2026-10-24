@@ -21,9 +21,13 @@ export function isOpenStatus(status: string) {
   return (OPEN_STATUSES as readonly string[]).includes(status);
 }
 
-// The employee can cancel until the kitchen starts; the stall can until the food is ready.
-export function employeeCanCancel(status: string) {
-  return status === "PLACED";
+// An employee can undo an order only just after paying (a wrong dish or slot,
+// a double tap), and only before the kitchen starts. After that the counter can
+// cancel it for them; the stall can until the food is ready.
+export const EMPLOYEE_CANCEL_MS = 30_000;
+
+export function employeeCanCancel(order: { status: string; createdAt: Date | string }, now = Date.now()) {
+  return order.status === "PLACED" && now - new Date(order.createdAt).getTime() < EMPLOYEE_CANCEL_MS;
 }
 
 // Before the food is ready, with a reason; once ready, only as a no-show.

@@ -8,10 +8,10 @@ import { toast } from "sonner";
 import { VegDot } from "@/components/veg-dot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cancelOwnOrder, rateOrder, reorderLines } from "@/lib/actions";
+import { cancelOwnCheckout, cancelOwnOrder, rateOrder, reorderLines } from "@/lib/actions";
 import { formatInr } from "@/lib/money";
 import type { OrderStatusUpdate, OrderView } from "@/lib/order-view";
-import { employeeCanCancel, isOpenStatus } from "@/lib/orders";
+import { EMPLOYEE_CANCEL_MS, employeeCanCancel, isOpenStatus } from "@/lib/orders";
 import { keepTicket } from "@/lib/offline-tickets";
 import { announceReady, askToNotify, canNotify } from "@/lib/ready-alert";
 
@@ -34,6 +34,14 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
   // Tickets paid for with this one that are waiting at their counter.
   const readyElsewhere = order.checkout.filter((ticket) => ticket.id !== order.id && ticket.status === "READY");
   const readyToken = order.status === "READY" ? order.token : readyElsewhere[0]?.token;
+  // A clock for the cancel window. It starts after hydration, so the server's
+  // HTML and the first browser render agree; the server checks the time again.
+  const [now, setNow] = useState<number | null>(null);
+  const placed = order.status === "PLACED";
+  const cancelBy = Date.parse(order.createdAt) + EMPLOYEE_CANCEL_MS;
+  const canCancel = now !== null && employeeCanCancel(order, now);
+  const secondsLeft = now === null ? 0 : Math.max(0, Math.ceil((cancelBy - now) / 1000));
+  const placedTogether = order.checkout.filter((ticket) => ticket.status === "PLACED").length;
 
   useEffect(() => {
     // Keep a copy for when the phone loses signal at the counter, and of the
@@ -101,6 +109,22 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
   }, [initial.id, initial.stallName, initial.token, initial.checkout, watching]);
 
   useEffect(() => {
+    if (!placed) return;
+    // Runs only from the timers below, after both exist.
+    const tick = () => {
+      const t = Date.now();
+      setNow(t);
+      if (t >= cancelBy) clearInterval(timer);
+    };
+    const first = setTimeout(tick, 0);
+    const timer = setInterval(tick, 1000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+  }, [placed, cancelBy]);
+
+  useEffect(() => {
     const base = document.title;
     if (readyToken) document.title = `Ready · ${readyToken}`;
     return () => {
@@ -108,33 +132,62 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
     };
   }, [readyToken]);
 
+  // Shows tickets as cancelled by the employee, this one included or not.
+  function markCancelled(ids: Set<string>) {
+    edits.current += 1;
+    for (const id of ids) otherStatus.current.set(id, "CANCELLED");
+    if (ids.has(order.id)) lastStatus.current = "CANCELLED";
+    const at = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).format(new Date());
+    setOrder((current) => ({
+      ...current,
+      ...(ids.has(current.id)
+        ? {
+            status: "CANCELLED",
+            statusLabel: "Cancelled",
+            cancelNote: "You cancelled this order.",
+            timeline: [...current.timeline.filter((step) => step.at), { label: "Cancelled", at }],
+          }
+        : {}),
+      checkout: current.checkout.map((ticket) =>
+        ids.has(ticket.id) ? { ...ticket, status: "CANCELLED", statusLabel: "Cancelled" } : ticket,
+      ),
+    }));
+  }
+
   function cancel() {
     setConfirmCancel(false);
     startCancel(async () => {
       const result = await cancelOwnOrder(order.id);
-      edits.current += 1;
       if (!result.ok) {
+        edits.current += 1;
         toast.error(result.error);
         return;
       }
-      lastStatus.current = "CANCELLED";
-      const now = new Intl.DateTimeFormat("en-GB", {
-        timeZone: "Asia/Kolkata",
-        hour: "2-digit",
-        minute: "2-digit",
-        hourCycle: "h23",
-      }).format(new Date());
-      setOrder((current) => ({
-        ...current,
-        status: "CANCELLED",
-        statusLabel: "Cancelled",
-        cancelNote: "You cancelled this order.",
-        timeline: [...current.timeline.filter((step) => step.at), { label: "Cancelled", at: now }],
-        checkout: current.checkout.map((ticket) =>
-          ticket.id === current.id ? { ...ticket, status: "CANCELLED", statusLabel: "Cancelled" } : ticket,
-        ),
-      }));
+      markCancelled(new Set([order.id]));
       toast.success("Order cancelled. The mock payment was refunded.");
+    });
+  }
+
+  function cancelAll() {
+    setConfirmCancel(false);
+    startCancel(async () => {
+      const result = await cancelOwnCheckout(order.id);
+      if (!result.ok) {
+        edits.current += 1;
+        toast.error(result.error);
+        return;
+      }
+      markCancelled(new Set(result.cancelled));
+      toast.success(
+        result.cancelled.length === placedTogether
+          ? `All ${placedTogether} tickets cancelled. The mock payment was refunded.`
+          : `Cancelled ${result.cancelled.length} of ${placedTogether} tickets; the others had already started.`,
+      );
     });
   }
 
@@ -288,23 +341,44 @@ export function OrderTicket({ initial }: { initial: OrderView }) {
         {open && !ready && notify === "on" ? (
           <p className="mt-3 text-xs text-muted-foreground">We will notify you when it is ready.</p>
         ) : null}
-        {employeeCanCancel(order.status) && !confirmCancel ? (
-          <Button variant="ghost" size="sm" className="mt-2 text-destructive" disabled={cancelling} onClick={() => setConfirmCancel(true)}>
-            {cancelling ? "Cancelling…" : "Cancel order"}
-          </Button>
+        {canCancel && !confirmCancel ? (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2 text-destructive"
+              disabled={cancelling}
+              onClick={() => setConfirmCancel(true)}
+            >
+              {cancelling ? "Cancelling…" : "Cancel order"}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              You can cancel for {secondsLeft} more second{secondsLeft === 1 ? "" : "s"}.
+            </p>
+          </>
         ) : null}
-        {employeeCanCancel(order.status) && confirmCancel ? (
+        {canCancel && confirmCancel ? (
           <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
             <p>Cancel {order.token}? The mock payment is refunded.</p>
-            <div className="mt-2 flex justify-center gap-2">
+            <div className="mt-2 flex flex-wrap justify-center gap-2">
               <Button size="sm" variant="destructive" disabled={cancelling} onClick={cancel}>
                 Yes, cancel it
               </Button>
+              {placedTogether > 1 ? (
+                <Button size="sm" variant="outline" disabled={cancelling} onClick={cancelAll}>
+                  Cancel all {placedTogether} tickets
+                </Button>
+              ) : null}
               <Button size="sm" variant="ghost" onClick={() => setConfirmCancel(false)}>
                 Keep order
               </Button>
             </div>
           </div>
+        ) : null}
+        {placed && now !== null && !canCancel && !cancelling ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Need to change it? Ask at the {order.stallName} counter.
+          </p>
         ) : null}
       </div>
 
