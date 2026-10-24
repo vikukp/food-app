@@ -71,7 +71,7 @@ With `DEMO_MODE=1`:
 
 ## Cancelling
 
-- An employee can cancel from the token screen until the stall taps **Start preparing**.
+- An employee can cancel from the token screen in the first 30 seconds after paying, while the stall has not tapped **Start preparing** (for a wrong dish, slot or a double tap; the screen counts down). The server checks the time. With several stalls paid for together, **Cancel all** undoes the whole payment in that window. After it, the counter can still cancel for them.
 - The stall can cancel until the order is ready, picking a reason the employee sees ("An item ran out", "Kitchen is closing", "Too busy to make it in time"). A ready order that nobody collects can be closed as "Not collected".
 - Either way the mock payment shows as refunded and the order moves to the counter's **Done** tab.
 

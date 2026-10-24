@@ -7,6 +7,7 @@ import { redirect } from "next/navigation";
 import { pickupLead, serviceDay } from "@/lib/hours";
 import { activeOrderCounts } from "@/lib/stall-load";
 import {
+  EMPLOYEE_CANCEL_MS,
   OPEN_STATUSES,
   NO_SHOW_AFTER_MS,
   cancelReasonsFor,
@@ -321,7 +322,17 @@ export async function advanceVendorOrder(rawOrderId: unknown, rawFrom: unknown):
   return { ok: true };
 }
 
-// Employees can cancel until the kitchen starts on it; the mock payment is refunded.
+const CANCEL_WINDOW_ERROR = `Orders can only be cancelled in the first ${EMPLOYEE_CANCEL_MS / 1000} seconds. To change it now, ask at the counter.`;
+
+const cancelledByEmployee = () => ({
+  status: "CANCELLED",
+  cancelledBy: "employee",
+  cancelReason: null,
+  cancelledAt: new Date(),
+});
+
+// Within EMPLOYEE_CANCEL_MS of paying, and before the kitchen starts on it. By
+// the server's clock; the mock payment is refunded.
 export async function cancelOwnOrder(rawOrderId: unknown): Promise<ActionResult> {
   const employee = await getEmployeeSession();
   if (!employee) return { ok: false, error: "Your sign-in has ended. Sign in again." };
@@ -329,8 +340,13 @@ export async function cancelOwnOrder(rawOrderId: unknown): Promise<ActionResult>
   if (!ORDER_ID_PATTERN.test(orderId)) return { ok: false, error: "Order not found." };
 
   const cancelled = await prisma.order.updateMany({
-    where: { id: orderId, employeeId: employee.employeeId, status: "PLACED" },
-    data: { status: "CANCELLED", cancelledBy: "employee", cancelReason: null, cancelledAt: new Date() },
+    where: {
+      id: orderId,
+      employeeId: employee.employeeId,
+      status: "PLACED",
+      createdAt: { gt: new Date(Date.now() - EMPLOYEE_CANCEL_MS) },
+    },
+    data: cancelledByEmployee(),
   });
   if (cancelled.count === 0) {
     const order = await prisma.order.findFirst({
@@ -340,12 +356,48 @@ export async function cancelOwnOrder(rawOrderId: unknown): Promise<ActionResult>
     if (!order) return { ok: false, error: "Order not found." };
     if (order.status === "CANCELLED") return { ok: false, error: "This order was already cancelled." };
     if (order.status === "COLLECTED") return { ok: false, error: "This order was already collected." };
+    if (order.status === "PLACED") return { ok: false, error: CANCEL_WINDOW_ERROR };
     return { ok: false, error: "The stall has already started on this order, so it can no longer be cancelled." };
   }
   revalidatePath("/orders");
   revalidatePath(`/orders/${orderId}`);
   revalidatePath("/vendor");
   return { ok: true };
+}
+
+type CheckoutCancelResult = { ok: true; cancelled: string[] } | { ok: false; error: string };
+
+// "Cancel all": every ticket paid for together that can still be cancelled
+// (same rule as one ticket). Returns the ids it cancelled.
+export async function cancelOwnCheckout(rawOrderId: unknown): Promise<CheckoutCancelResult> {
+  const employee = await getEmployeeSession();
+  if (!employee) return { ok: false, error: "Your sign-in has ended. Sign in again." };
+  const orderId = cleanText(rawOrderId, 40);
+  if (!ORDER_ID_PATTERN.test(orderId)) return { ok: false, error: "Order not found." };
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, employeeId: employee.employeeId },
+    select: { checkoutId: true },
+  });
+  if (!order?.checkoutId) return { ok: false, error: "Order not found." };
+
+  const tickets = await prisma.order.findMany({
+    where: { checkoutId: order.checkoutId, employeeId: employee.employeeId },
+    select: { id: true },
+  });
+  const cutoff = new Date(Date.now() - EMPLOYEE_CANCEL_MS);
+  const cancelled: string[] = [];
+  for (const ticket of tickets) {
+    const moved = await prisma.order.updateMany({
+      where: { id: ticket.id, status: "PLACED", createdAt: { gt: cutoff } },
+      data: cancelledByEmployee(),
+    });
+    if (moved.count) cancelled.push(ticket.id);
+  }
+  if (!cancelled.length) return { ok: false, error: CANCEL_WINDOW_ERROR };
+  revalidatePath("/orders");
+  for (const id of cancelled) revalidatePath(`/orders/${id}`);
+  revalidatePath("/vendor");
+  return { ok: true, cancelled };
 }
 
 // The stall can turn an order down until it is ready, with one of a few stock reasons.

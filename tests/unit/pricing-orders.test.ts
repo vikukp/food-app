@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { cartCount, cartTotal, EMPTY_CART } from "@/lib/cart";
 import { formatInr } from "@/lib/money";
-import { isOrderStatus, nextStatus, randomToken, statusLabel } from "@/lib/orders";
+import { EMPLOYEE_CANCEL_MS, employeeCanCancel, isOrderStatus, nextStatus, randomToken, statusLabel } from "@/lib/orders";
 import { effectivePrice, hasOffer, offerPercent } from "@/lib/pricing";
 
 describe("pricing", () => {
@@ -53,5 +53,16 @@ describe("order status", () => {
 
   it("draws tokens in IWF-1000..IWF-9999", () => {
     for (let i = 0; i < 500; i += 1) assert.match(randomToken(), /^IWF-[1-9]\d{3}$/);
+  });
+
+  it("lets the employee cancel only in the first 30 seconds, before the kitchen starts", () => {
+    const placedAt = new Date("2026-10-24T12:00:00Z");
+    const at = (ms: number) => placedAt.getTime() + ms;
+    assert.equal(EMPLOYEE_CANCEL_MS, 30_000);
+    assert.equal(employeeCanCancel({ status: "PLACED", createdAt: placedAt }, at(0)), true);
+    assert.equal(employeeCanCancel({ status: "PLACED", createdAt: placedAt.toISOString() }, at(29_999)), true);
+    assert.equal(employeeCanCancel({ status: "PLACED", createdAt: placedAt }, at(30_000)), false);
+    assert.equal(employeeCanCancel({ status: "PREPARING", createdAt: placedAt }, at(5_000)), false);
+    assert.equal(employeeCanCancel({ status: "CANCELLED", createdAt: placedAt }, at(5_000)), false);
   });
 });
