@@ -1,8 +1,8 @@
 // The page side of offline tickets (see public/sw.js, which serves them).
 // Names must match the worker's.
-const TICKETS = "iwf-tickets-v1";
+const TICKETS = "fc-tickets-v1";
 const MAX_TICKETS = 10;
-const OWNER_KEY = "iwf-device-owner";
+const OWNER_KEY = "fc-device-owner";
 
 let claimed: Promise<void> = Promise.resolve();
 

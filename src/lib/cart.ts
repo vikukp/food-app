@@ -22,7 +22,7 @@ export type CartState = {
 
 export const EMPTY_CART: CartState = { stalls: [] };
 
-export const CART_STORAGE_KEY = "iwf-food-cart-v1";
+export const CART_STORAGE_KEY = "fc-cart-v1";
 
 export function cartLines(cart: CartState) {
   return cart.stalls.flatMap((stall) => stall.items);

@@ -71,7 +71,7 @@ export default function HomePage() {
           <li className="rounded-xl border bg-card p-4">
             <p className="font-semibold">3. Show token</p>
             <p className="mt-1 text-muted-foreground">
-              When status flips to ready, walk up with IWF-xxxx. No standing in the order line.
+              When status flips to ready, walk up with T-xxxx. No standing in the order line.
             </p>
           </li>
         </ol>

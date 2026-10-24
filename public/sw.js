@@ -8,8 +8,8 @@
 // - Built JS/CSS (/_next/static, content-hashed) is kept so that copy works.
 // - Any other page offline gets a short "you're offline" page listing kept tickets.
 // - Signing out answers with Clear-Site-Data, which drops all of this.
-const TICKETS = "iwf-tickets-v1";
-const ASSETS = "iwf-assets-v1";
+const TICKETS = "fc-tickets-v1";
+const ASSETS = "fc-assets-v1";
 const MAX_ASSETS = 300;
 const TICKET_PATH = /^\/orders\/[a-z0-9]{10,40}$/i;
 
@@ -34,7 +34,7 @@ async function offlinePage() {
     .map((path) => `<li><a href="${path}">Ticket ${path.split("/").pop().slice(-6)}</a></li>`)
     .join("");
   const body = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Offline · IWF Food Court</title>
+<title>Offline · Campus Food Court</title>
 <body style="font-family:system-ui,sans-serif;background:#f4f1ea;color:#1c1917;margin:0;padding:24px;max-width:28rem">
 <h1 style="font-size:1.4rem">You are offline</h1>
 <p>Ordering needs a connection. Tickets you opened on this phone still work at the counter:</p>

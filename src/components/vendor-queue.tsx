@@ -115,7 +115,7 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
             ? current.map((o) => (o.id === found.id ? { ...found, found: o.found } : o))
             : [...current, found],
         );
-        setQuery(found.token.replace("IWF-", ""));
+        setQuery(found.token.replace("T-", ""));
       });
     },
     [],

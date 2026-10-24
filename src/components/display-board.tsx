@@ -43,7 +43,7 @@ export function DisplayBoardView({
             {board.ready.length ? (
               board.ready.map((token) => (
                 <li key={token} className="rounded-xl bg-emerald-600 px-4 py-2 font-mono text-3xl font-semibold text-white sm:text-5xl">
-                  {token.replace("IWF-", "")}
+                  {token.replace("T-", "")}
                 </li>
               ))
             ) : (
@@ -57,7 +57,7 @@ export function DisplayBoardView({
             {board.preparing.length ? (
               board.preparing.map((token) => (
                 <li key={token} className="rounded-xl bg-white/15 px-4 py-2 font-mono text-2xl sm:text-4xl">
-                  {token.replace("IWF-", "")}
+                  {token.replace("T-", "")}
                 </li>
               ))
             ) : (
@@ -67,7 +67,7 @@ export function DisplayBoardView({
         </section>
       </div>
       <p className="mt-6 text-center text-emerald-100/80 sm:text-lg">
-        Show your token or QR at the counter. Order ahead on the IWF Food Court app.
+        Show your token or QR at the counter. Order ahead on the Campus Food Court app.
       </p>
     </main>
   );

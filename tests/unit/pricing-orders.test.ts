@@ -51,8 +51,8 @@ describe("order status", () => {
     assert.equal(statusLabel("READY"), "Ready for pickup");
   });
 
-  it("draws tokens in IWF-1000..IWF-9999", () => {
-    for (let i = 0; i < 500; i += 1) assert.match(randomToken(), /^IWF-[1-9]\d{3}$/);
+  it("draws tokens in T-1000..T-9999", () => {
+    for (let i = 0; i < 500; i += 1) assert.match(randomToken(), /^T-[1-9]\d{3}$/);
   });
 
   it("lets the employee cancel only in the first 30 seconds, before the kitchen starts", () => {

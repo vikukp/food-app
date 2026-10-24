@@ -17,7 +17,7 @@ export const EMPLOYEE_LOGIN_ERRORS: Record<string, string> = {
     "PIN sign-in is locked after 5 wrong tries. Sign in with a one-time code to unlock it now, or try again in 30 minutes (after repeated lockouts, only a code unlocks it).",
   regexpired: "Your verification timed out. Confirm your mobile number again.",
   name: "Enter the name on your badge (letters, spaces, dots or hyphens).",
-  id: "Enter a valid employee ID, for example HPE-48219.",
+  id: "Enter a valid employee ID, for example EMP-48219.",
   idtaken: "That employee ID is already registered with another mobile number. Ask the facilities desk if that is wrong.",
   pinformat: "Choose a PIN of 4 to 6 digits.",
   pinmatch: "The two PINs do not match.",

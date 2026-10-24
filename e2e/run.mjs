@@ -82,7 +82,7 @@ async function alertText(page) {
 }
 
 async function inboxCode(page) {
-  const message = page.getByText(/is your HPE IWF Food Court sign-in code/);
+  const message = page.getByText(/is your Campus Food Court sign-in code/);
   await message.waitFor({ timeout: 5000 });
   return (await message.innerText()).match(/(\d{6}) is your/)[1];
 }
@@ -203,7 +203,7 @@ await step("the right code opens registration with the verified number", async (
   await submitCode(emp, user.code);
   await emp.waitForURL(`${BASE}/enter/register`);
   check((await emp.inputValue("#username")) === spaced(user.phone), "verified number not shown");
-  check((await emp.context().cookies()).every((c) => c.name !== "iwf_otp"), "code ticket cookie left behind");
+  check((await emp.context().cookies()).every((c) => c.name !== "fc_otp"), "code ticket cookie left behind");
 });
 
 await step("weak PINs are refused and typed details are kept", async () => {
@@ -225,7 +225,7 @@ await step("a PIN matching the end of the number, and mismatched PINs, are refus
 });
 
 await step("an employee ID registered to another number is refused", async () => {
-  await submitRegistration(emp, { name: user.name, employeeId: "HPE-48219", pin });
+  await submitRegistration(emp, { name: user.name, employeeId: "EMP-48219", pin });
   await emp.waitForURL(/error=idtaken/);
   check((await alertText(emp)).includes("already registered"), "no duplicate-ID message");
 });
@@ -235,9 +235,9 @@ await step("registration signs you in", async () => {
   await emp.waitForURL(`${BASE}/stalls`);
   check((await emp.locator("header").innerText()).includes(user.name), "name missing from the header");
   const cookies = await emp.context().cookies();
-  const session = cookies.find((c) => c.name === "iwf_employee");
+  const session = cookies.find((c) => c.name === "fc_employee");
   check(session?.httpOnly && session.sameSite === "Lax", "session cookie is not HttpOnly + SameSite=Lax");
-  check(cookies.every((c) => c.name !== "iwf_reg"), "registration ticket cookie left behind");
+  check(cookies.every((c) => c.name !== "fc_reg"), "registration ticket cookie left behind");
   return `${user.name} · ${user.employeeId}`;
 });
 
@@ -416,7 +416,7 @@ await step("order from a stall and get a QR token", async () => {
   check((await emp.locator("main a[href='/stalls']", { hasText: "Back to stalls" }).count()) === 1, "checkout has no way back to the stalls");
   await emp.locator("main button:has-text('Pay ₹')").click();
   await emp.waitForURL(/\/orders\/[^/]+$/);
-  token = (await emp.locator("main").innerText()).match(/IWF-\d{4}/)?.[0] ?? "";
+  token = (await emp.locator("main").innerText()).match(/\bT-\d{4}\b/)?.[0] ?? "";
   check(token && (await emp.locator("main img[alt*='QR']").count()) === 1, "token or QR missing");
   check((await emp.locator("header a[aria-current='page']").innerText()).trim() === "Orders", "the header does not mark Orders on a ticket");
   return token;
@@ -470,7 +470,7 @@ await step("the counter display shows the token ready, and the ticket's timeline
   const board = await newPage("display", { width: 1280, height: 720 });
   await board.goto(`${BASE}/display/momos`);
   const ready = board.getByRole("region", { name: "Ready for pickup" });
-  await ready.getByText(token.replace("IWF-", ""), { exact: true }).waitFor({ timeout: 5000 });
+  await ready.getByText(token.replace("T-", ""), { exact: true }).waitFor({ timeout: 5000 });
   check(!(await board.locator("body").innerText()).includes(user.name), "the public display shows a name");
   await board.context().close();
   const progress = await emp.getByRole("list", { name: "Order progress" }).innerText();
@@ -515,7 +515,7 @@ async function addFirstItem(page) {
 // Empties the bag (it lives in localStorage), then adds the first item of one stall.
 async function freshBag(page, stallId) {
   await page.evaluate(() => {
-    for (const key of Object.keys(localStorage)) if (key.startsWith("iwf-food-cart")) localStorage.removeItem(key);
+    for (const key of Object.keys(localStorage)) if (key.startsWith("fc-cart")) localStorage.removeItem(key);
   });
   await page.goto(`${BASE}/stalls/${stallId}`, { waitUntil: "networkidle" });
   return addFirstItem(page);
@@ -537,7 +537,7 @@ async function placeMomosOrder(page) {
   await waitForPay(page);
   await page.locator("main button:has-text('Pay ₹')").click();
   await page.waitForURL(/\/orders\/[^/]+$/);
-  return (await page.locator("main").innerText()).match(/IWF-\d{4}/)?.[0] ?? "";
+  return (await page.locator("main").innerText()).match(/\bT-\d{4}\b/)?.[0] ?? "";
 }
 
 await step("an employee can cancel in the first 30 seconds, before the kitchen starts", async () => {
@@ -567,7 +567,7 @@ await step("the stall can cancel with a reason and the ticket says why", async (
 });
 
 await step("the counter finds a token, hands it over, and other stalls cannot", async () => {
-  const digits = token.replace("IWF-", "");
+  const digits = token.replace("T-", "");
   const other = await vendorSignIn("vendor-dosa", "dosa");
   await other.getByLabel("Find token").fill(digits);
   await other.getByRole("button", { name: "Find" }).click();
@@ -694,7 +694,7 @@ await step("one bag from two stalls: one payment, a token per stall, and each co
 
   const strip = emp.getByRole("navigation", { name: "Tickets paid for together" });
   await strip.waitFor({ timeout: 5000 });
-  const tokens = (await strip.innerText()).match(/IWF-\d{4}/g) ?? [];
+  const tokens = (await strip.innerText()).match(/\bT-\d{4}\b/g) ?? [];
   check(tokens.length === 2, `expected 2 tokens, got ${tokens.join(", ")}`);
   check((await emp.locator("h1").innerText()).trim() === tokens[0], "checkout did not land on the first stall's ticket");
   check((await strip.innerText()).includes(`Idli & Filter Coffee · ${idliSlot}`), "the Idli ticket lost its own pickup time");
@@ -789,7 +789,7 @@ await step("a ticket opened once is kept for offline, and sign-out wipes it", as
   check(html?.includes(token), "the kept copy is not the ticket");
 
   // Someone else signing in on this browser drops the previous person's copies.
-  await phone.evaluate(() => localStorage.setItem("iwf-device-owner", "someone-else"));
+  await phone.evaluate(() => localStorage.setItem("fc-device-owner", "someone-else"));
   await phone.goto(`${BASE}/orders`);
   await until(false, 5000);
   check(!(await kept()), "another person's ticket survived a new sign-in");
@@ -934,11 +934,11 @@ await step("a sold-out item blocks paying until it is removed, and the rest of t
 });
 
 await step("a tampered session cookie is refused", async () => {
-  const real = (await emp.context().cookies()).find((c) => c.name === "iwf_employee");
+  const real = (await emp.context().cookies()).find((c) => c.name === "fc_employee");
   const [body, signature] = real.value.split(".");
   const flipped = body.slice(0, 10) + (body[10] === "A" ? "B" : "A") + body.slice(11);
   const context = await browser.newContext();
-  await context.addCookies([{ name: "iwf_employee", value: `${flipped}.${signature}`, url: BASE }]);
+  await context.addCookies([{ name: "fc_employee", value: `${flipped}.${signature}`, url: BASE }]);
   const page = await context.newPage();
   await page.goto(`${BASE}/stalls`);
   check(page.url() === `${BASE}/enter`, `landed on ${page.url()}`);

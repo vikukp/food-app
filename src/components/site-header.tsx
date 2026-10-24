@@ -49,11 +49,19 @@ export function SiteHeader({ variant, name, stallName, current, right }: Props) 
   return (
     <header className="sticky top-0 z-40 border-b border-emerald-900/10 bg-[#0b3d32] text-white">
       <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-2 px-4 sm:gap-3">
-        <Link href={variant === "vendor" ? "/vendor" : variant === "employee" ? "/stalls" : "/"} className="min-w-0">
-          <p className="truncate text-[11px] font-medium tracking-[0.1em] text-emerald-100/80 uppercase sm:tracking-[0.18em]">
-            HPE IWF Campus
-          </p>
-          <p className="truncate text-sm font-semibold tracking-tight">Food Court</p>
+        <Link
+          href={variant === "vendor" ? "/vendor" : variant === "employee" ? "/stalls" : "/"}
+          className="flex min-w-0 items-center gap-2"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icon.svg" alt="" width={28} height={28} className="size-7 shrink-0" />
+          {/* Beside the employee links, the smallest phones only have room for the logo. */}
+          <div className={variant === "employee" ? "min-w-0 max-[359px]:sr-only" : "min-w-0"}>
+            <p className="truncate text-[11px] font-medium tracking-[0.1em] text-emerald-100/80 uppercase sm:tracking-[0.18em]">
+              Campus
+            </p>
+            <p className="truncate text-sm font-semibold tracking-tight">Food Court</p>
+          </div>
         </Link>
         <div className="flex items-center gap-1 sm:gap-2">
           {variant === "employee" && name ? (

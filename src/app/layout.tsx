@@ -19,16 +19,16 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: {
-    default: "HPE IWF Food Court",
-    template: "%s · HPE IWF Food Court",
+    default: "Campus Food Court",
+    template: "%s · Campus Food Court",
   },
   description:
-    "Skip the afternoon line at HPE IWF Campus. Order from 20 stalls, pick a pickup time, pay, and show a QR token at the counter.",
-  applicationName: "HPE IWF Food Court",
+    "Skip the afternoon line at the campus food court. Order from 20 stalls, pick a pickup time, pay, and show a QR token at the counter.",
+  applicationName: "Campus Food Court",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "IWF Food",
+    title: "Food Court",
     statusBarStyle: "default",
   },
 };
