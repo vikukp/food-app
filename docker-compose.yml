@@ -8,6 +8,8 @@ services:
       - "43123:43123"
     volumes:
       - food-court-data:/data
+      # Your logo, for BRAND_LOGO below:
+      # - ./logo.png:/brand/logo.png:ro
     environment:
       # Optional: set your own; otherwise one is generated into the volume.
       # SESSION_SECRET: ""
@@ -19,6 +21,11 @@ services:
       # TWILIO_FROM: ""
       # Food court managers (by mobile number, see README):
       # ADMIN_PHONES: "9845012345"
+      # Name and logo of this copy (see Branding in README):
+      # BRAND_NAME: "Acme Pune Food Court"
+      # BRAND_SHORT_NAME: "Food Court"
+      # BRAND_LOGO: /brand/logo.png
+      # BRAND_LOGO_BACKGROUND: "#0b3d32"
       # For a demo only:
       # DEMO_MODE: "1"
 volumes:

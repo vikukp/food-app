@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ServiceWorker } from "@/components/service-worker";
 import { Toaster } from "@/components/ui/sonner";
+import { brandAssetUrl, brandLogo, brandNames, logoFile } from "@/lib/brand";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -17,21 +18,31 @@ const geistMono = Geist_Mono({
 // Every page renders per request so the CSP nonce from src/proxy.ts is applied.
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: {
-    default: "Campus Food Court",
-    template: "%s · Campus Food Court",
-  },
-  description:
-    "Skip the afternoon line at the campus food court. Order from 20 stalls, pick a pickup time, pay, and show a QR token at the counter.",
-  applicationName: "Campus Food Court",
-  manifest: "/manifest.webmanifest",
-  appleWebApp: {
-    capable: true,
-    title: "Food Court",
-    statusBarStyle: "default",
-  },
-};
+// Name and icons come from the brand settings (src/lib/brand.ts); app/manifest.ts links itself.
+export function generateMetadata(): Metadata {
+  const { name, shortName } = brandNames();
+  const logo = brandLogo();
+  return {
+    title: {
+      default: name,
+      template: `%s · ${name}`,
+    },
+    description: `Skip the afternoon line at ${name}. Order from 20 stalls, pick a pickup time, pay, and show a QR token at the counter.`,
+    applicationName: name,
+    appleWebApp: {
+      capable: true,
+      title: shortName,
+      statusBarStyle: "default",
+    },
+    icons: {
+      icon: [
+        { url: brandAssetUrl(logo, "icon-32.png"), sizes: "32x32", type: "image/png" },
+        ...(logo.type === "image/svg+xml" ? [{ url: brandAssetUrl(logo, logoFile(logo)), type: "image/svg+xml" }] : []),
+      ],
+      apple: { url: brandAssetUrl(logo, "apple-icon.png"), sizes: "180x180", type: "image/png" },
+    },
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: "#0b3d32",

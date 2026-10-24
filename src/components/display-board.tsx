@@ -6,9 +6,11 @@ import type { DisplayBoard } from "@/lib/display-board";
 export function DisplayBoardView({
   stall,
   initial,
+  brandName,
 }: {
   stall: { id: string; name: string; location: string };
   initial: DisplayBoard;
+  brandName: string;
 }) {
   const [board, setBoard] = useState(initial);
   const [stale, setStale] = useState(false);
@@ -67,7 +69,7 @@ export function DisplayBoardView({
         </section>
       </div>
       <p className="mt-6 text-center text-emerald-100/80 sm:text-lg">
-        Show your token or QR at the counter. Order ahead on the Campus Food Court app.
+        Show your token or QR at the counter. Order ahead on the {brandName} app.
       </p>
     </main>
   );

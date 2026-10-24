@@ -1,3 +1,4 @@
+import { brandNames } from "@/lib/brand";
 import { demoMode } from "@/lib/mode";
 import { maskPhone } from "@/lib/phone";
 
@@ -14,7 +15,7 @@ export function smsMode(): SmsMode {
 }
 
 export function otpMessage(code: string) {
-  return `${code} is your Campus Food Court sign-in code. Valid for 5 minutes. Do not share it with anyone.`;
+  return `${code} is your ${brandNames().name} sign-in code. Valid for 5 minutes. Do not share it with anyone.`;
 }
 
 export async function sendOtpSms(phone: string, code: string): Promise<boolean> {

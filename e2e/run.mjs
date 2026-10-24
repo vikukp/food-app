@@ -961,6 +961,49 @@ await step("sign-in screens fit a phone screen", async () => {
   await mobile.context().close();
 });
 
+// Side in pixels of each icon the brand routes draw.
+const BRAND_ICON_SIDES = {
+  "icon-32.png": 32,
+  "icon-192.png": 192,
+  "icon-512.png": 512,
+  "apple-icon.png": 180,
+  "icon-maskable.png": 512,
+  "favicon.ico": 32,
+};
+
+await step("the name, logo and icons come from the brand settings", async () => {
+  const page = await newPage("brand");
+  await page.goto(`${BASE}/`);
+  const wordmark = (await page.locator("header a").first().innerText()).replace(/\s+/g, " ").trim();
+  check(wordmark.toLowerCase() === "campus food court", `header shows "${wordmark}"`);
+  check((await page.title()).endsWith("Campus Food Court"), `title is "${await page.title()}"`);
+  const links = await page
+    .locator("head link[rel='icon'], head link[rel='apple-touch-icon']")
+    .evaluateAll((els) => els.map((el) => el.getAttribute("href")));
+  const manifest = await (await fetch(`${BASE}/manifest.webmanifest`)).json();
+  check(manifest.name === "Campus Food Court" && manifest.short_name === "Food Court", "manifest names");
+  const urls = [...links, ...manifest.icons.map((icon) => icon.src)];
+  check(urls.length >= 6 && urls.every((url) => /^\/brand\/[a-z0-9-]+\.(png|svg)\?v=[0-9a-f]{12}$/.test(url)), urls.join(" "));
+  for (const url of [...urls, "/favicon.ico"]) {
+    const response = await fetch(`${BASE}${url}`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    const name = url.split("?")[0].split("/").pop();
+    check(response.ok, `${url}: ${response.status}`);
+    if (url.includes("?v=")) check(response.headers.get("cache-control")?.includes("immutable"), `${url} is not cached`);
+    if (name === "logo.svg") {
+      check(bytes.toString("utf8").includes("<svg"), "logo.svg is not an SVG");
+      check(response.headers.get("content-security-policy")?.includes("sandbox"), "the SVG logo is not sandboxed");
+      continue;
+    }
+    const side = BRAND_ICON_SIDES[name];
+    check(response.headers.get("content-type") === "image/png", `${url}: ${response.headers.get("content-type")}`);
+    check(side && bytes.readUInt32BE(16) === side && bytes.readUInt32BE(20) === side, `${url} is not ${side}px square`);
+  }
+  check((await fetch(`${BASE}/brand/other.png`)).status === 404, "an unknown brand file was served");
+  await page.context().close();
+  return `header, title, manifest and ${urls.length + 1} icons`;
+});
+
 const AXE = readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8");
 
 async function axeViolations(page) {

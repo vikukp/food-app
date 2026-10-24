@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PrintButton } from "@/components/print-button";
+import { brandNames } from "@/lib/brand";
 import { gstBreakup } from "@/lib/gst";
 import { campusClockTime } from "@/lib/hours";
 import { formatInr } from "@/lib/money";
@@ -28,7 +29,9 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
     <main className="mx-auto w-full max-w-md px-4 py-8 print:py-0">
       <div className="rounded-xl border bg-card p-5 text-sm print:border-0">
         <h1 className="text-lg font-semibold">{order.stall.name}</h1>
-        <p className="text-muted-foreground">Campus Food Court · {order.stall.location}</p>
+        <p className="text-muted-foreground">
+          {brandNames().name} · {order.stall.location}
+        </p>
         <p className="text-muted-foreground">GSTIN: {order.stall.gstin ?? "not provided by the stall"}</p>
         <dl className="mt-4 grid grid-cols-2 gap-y-1">
           <dt className="text-muted-foreground">Receipt for</dt>
