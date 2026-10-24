@@ -73,8 +73,8 @@ export default async function RegisterPage({
               autoCapitalize="characters"
               maxLength={20}
               pattern="[A-Za-z0-9][A-Za-z0-9\-]{2,19}"
-              title="Letters, digits and hyphens, for example HPE-48219"
-              placeholder="HPE-48219"
+              title="Letters, digits and hyphens, for example EMP-48219"
+              placeholder="EMP-48219"
               defaultValue={ticket.employeeId}
               className={fieldClass}
             />

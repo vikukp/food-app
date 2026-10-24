@@ -447,7 +447,7 @@ export async function cancelVendorOrder(
 
 type LookupResult = { ok: true; order: VendorOrder } | { ok: false; error: string };
 
-// The counter types a token (IWF-4821 or just 4821) or scans the ticket's QR.
+// The counter types a token (T-4821 or just 4821) or scans the ticket's QR.
 // A QR must carry a valid signature and belong to this stall.
 export async function lookupVendorOrder(rawQuery: unknown): Promise<LookupResult> {
   const vendor = await getVendorSession();
@@ -456,14 +456,14 @@ export async function lookupVendorOrder(rawQuery: unknown): Promise<LookupResult
 
   const include = { ...vendorOrderInclude, stall: { select: { name: true } } };
   let order;
-  if (query.startsWith("IWF-FOOD|")) {
+  if (query.startsWith("FOOD-COURT|")) {
     const qr = await verifyQrPayload(query);
     if (!qr) return { ok: false, error: "That QR code is not a valid food court ticket." };
     order = await prisma.order.findUnique({ where: { id: qr.orderId }, include });
   } else {
-    const digits = query.replace(/^IWF-?/i, "").trim();
+    const digits = query.replace(/^T-?/i, "").trim();
     if (!/^\d{4}$/.test(digits)) return { ok: false, error: "Type the 4 digits of the token, like 4821." };
-    const token = `IWF-${digits}`;
+    const token = `T-${digits}`;
     // Tokens repeat across days: prefer the order still waiting, else this shift's.
     const stall = await prisma.stall.findUnique({
       where: { id: vendor.stallId },

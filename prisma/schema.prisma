@@ -60,7 +60,7 @@ model MenuItem {
 
 model Order {
   id            String      @id @default(cuid())
-  // IWF-1000..IWF-9999, unique per stall per campus day so tokens never run out.
+  // T-1000..T-9999, unique per stall per campus day so tokens never run out.
   token         String
   tokenDay      String      @default("")
   employeeId    String

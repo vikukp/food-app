@@ -1,7 +1,7 @@
 import { sessionSecret } from "@/lib/secret";
 import { hmacHex } from "@/lib/signed-token";
 
-const PREFIX = "IWF-FOOD";
+const PREFIX = "FOOD-COURT";
 const SIG_CHARS = 24;
 
 async function signature(token: string, orderId: string) {
@@ -18,7 +18,7 @@ export async function verifyQrPayload(payload: string) {
   const parts = payload.split("|");
   if (parts.length !== 4 || parts[0] !== PREFIX) return null;
   const [, token, orderId, sig] = parts;
-  if (!/^IWF-\d{4}$/.test(token) || !/^[a-z0-9]{10,40}$/i.test(orderId)) return null;
+  if (!/^T-\d{4}$/.test(token) || !/^[a-z0-9]{10,40}$/i.test(orderId)) return null;
   const expected = await signature(token, orderId);
   if (sig.length !== expected.length) return null;
   let diff = 0;

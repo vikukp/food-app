@@ -40,7 +40,7 @@ export default async function StallsPage() {
     <div className="flex min-h-full flex-col">
       <SiteHeader variant="employee" name={session?.name} current="stalls" right={<CartButton />} />
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-6 pb-24">
-        <h1 className="text-2xl font-semibold tracking-tight">IWF food court</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Campus Food Court</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {openCount} of {stalls.length} stalls open now (IST) · order now, pick up at your slot.
           Hi {session!.name.split(" ")[0]}.

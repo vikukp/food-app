@@ -85,7 +85,7 @@ export default async function EnterPage({
                 required
                 autoComplete="username"
                 maxLength={20}
-                placeholder="98450 12345 or HPE-48219"
+                placeholder="98450 12345 or EMP-48219"
                 defaultValue={fieldDefault}
                 className={fieldClass}
               />

@@ -1,4 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="14" fill="#0b3d32"/>
-  <text x="32" y="40" text-anchor="middle" font-family="system-ui,sans-serif" font-size="18" font-weight="700" fill="#ecfdf5">IWF</text>
+  <path d="M26 26c-4-3 4-5 0-8s4-5 0-8M38 26c-4-3 4-5 0-8s4-5 0-8" fill="none" stroke="#fbbf24" stroke-width="4" stroke-linecap="round"/>
+  <path d="M9 32h46a23 18 0 0 1-46 0z" fill="#f4f1ea"/>
+  <path d="M9 32h46" stroke="#f4f1ea" stroke-width="4" stroke-linecap="round"/>
+  <rect x="22" y="47" width="20" height="6" rx="3" fill="#f4f1ea"/>
 </svg>

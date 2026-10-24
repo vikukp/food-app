@@ -1,6 +1,6 @@
-# HPE IWF Campus Food Court
+# Campus Food Court
 
-HungerBox-style web app for the HPE IWF campus food court. Employees browse about 20 stalls, fill one bag from one or several of them, pick a pickup time at each, pay once with a mock Pluxee / UPI / card checkout, and show a QR token at each counter. Stall staff see incoming orders and mark them ready.
+HungerBox-style web app for a campus food court. Employees browse about 20 stalls, fill one bag from one or several of them, pick a pickup time at each, pay once with a mock Pluxee / UPI / card checkout, and show a QR token at each counter. Stall staff see incoming orders and mark them ready.
 
 This is a web-first slice. Phones work in the browser (Add to Home Screen / PWA). Native iOS and Play Store apps are not included yet.
 
@@ -41,7 +41,7 @@ With `DEMO_MODE=1`:
 **Employee**
 
 - Open **Continue as employee**
-- Demo employee: mobile `98450 12345`, PIN `4826` (employee ID `HPE-48219`)
+- Demo employee: mobile `98450 12345`, PIN `4826` (employee ID `EMP-48219`)
 - Or sign in with a one-time code: in demo SMS mode no text is sent and the code appears on the verify screen. Any 10-digit Indian mobile number works; a new number goes on to registration.
 
 **Stall counter**
@@ -54,7 +54,7 @@ With `DEMO_MODE=1`:
 
 1. Sign in as an employee and add items from a stall (or two: lunch from one, a juice from another).
 2. Checkout: choose a 15-minute pickup slot for each stall and a mock payment method.
-3. Keep the QR / `IWF-xxxx` token screen open.
+3. Keep the QR / `T-xxxx` token screen open.
 4. In another tab, sign in as that stall and tap **Start preparing**, then **Mark ready**.
 5. The employee token screen flips to **Ready for pickup**: the phone vibrates and chimes, the tab title changes, and a notification appears if the employee tapped **Notify me when it is ready**.
 6. At the counter, type the token's 4 digits into **Find token** (or tap **Scan QR** on a browser with a built-in QR reader, such as Chrome on Android) and tap **Mark collected**.
@@ -104,7 +104,7 @@ With `DEMO_MODE=1`:
 
 Any other value, missing Twilio credentials, an HTTP error or a 10-second timeout fails closed: no code is issued and the employee is asked to try again or use their PIN. `OTP_DAILY_LIMIT` (default 2000) caps texts per rolling 24 hours across the whole app.
 
-SMS to Indian numbers requires a DLT-registered sender ID and message template. The message is: `123456 is your HPE IWF Food Court sign-in code. Valid for 5 minutes. Do not share it with anyone.`
+SMS to Indian numbers requires a DLT-registered sender ID and message template. The message is: `123456 is your Campus Food Court sign-in code. Valid for 5 minutes. Do not share it with anyone.`
 
 ## Vendor catalogue
 
@@ -150,7 +150,7 @@ A checklist for running this for real, on one server:
 6. **Admins.** Set `ADMIN_PHONES` to the food court managers' mobile numbers.
 7. **Data.** SQLite lives in `prisma/dev.db`; back it up (e.g. `sqlite3 prisma/dev.db ".backup backup.db"`) and keep it on persistent disk. `npm run build` applies schema changes with `prisma db push` and never removes vendor edits.
    - **A database from before dietary tags** has no Egg tags on the starter dishes, because the seed only tags dishes it creates. `npm run db:tag-dietary` lists what the starter menu would add; `npm run db:tag-dietary -- --apply` writes it. In Docker, use `docker compose exec app npm run db:tag-dietary -- --apply`. It only adds tags, and leaves alone (and lists) any dish its stall has renamed or re-described.
-8. **Before employees use it:** connect registration to the HR directory or HPE SSO (names and IDs are not checked today), and replace the mock payment with the real Pluxee / UPI gateway.
+8. **Before employees use it:** connect registration to the HR directory or the company's SSO (names and IDs are not checked today), and replace the mock payment with the real Pluxee / UPI gateway.
 
 Rate limits and the code-request queue are kept in process memory, so run one instance. To scale out, move them to Redis and the database to Postgres.
 
@@ -166,7 +166,7 @@ Rate limits and the code-request queue are kept in process memory, so run one in
 - QR payloads carry an HMAC so a counter scanner can reject fabricated codes (`src/lib/qr.ts`).
 - Every response carries a nonce-based Content-Security-Policy, `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, and HSTS behind TLS. `X-Powered-By` is off.
 - All order input is validated server-side and prices are always taken from the stall's catalogue, never from the client.
-- The phone number is verified, but the name and employee ID typed at registration are not checked against HR. Before real use, connect registration to the HR directory or HPE SSO. If the database was ever seeded in demo mode, delete the demo employee and change every stall PIN (the seed warns about the former).
+- The phone number is verified, but the name and employee ID typed at registration are not checked against HR. Before real use, connect registration to the HR directory or the company's SSO. If the database was ever seeded in demo mode, delete the demo employee and change every stall PIN (the seed warns about the former).
 - Per-network limits key on the client address. `server.mjs` works it out from the socket and `X-Forwarded-For`, trusting only `TRUST_PROXY_HOPS` proxies (default `0`: browsers connect directly and any `X-Forwarded-For` they send is ignored). Behind one reverse proxy or load balancer, set `TRUST_PROXY_HOPS=1`. `next dev` passes the header through as sent, so this only holds for `npm start`. In-process rate limits are fine for one server; move them to Redis if you scale out.
 
 ## Tests
@@ -191,4 +191,4 @@ It uses your installed Google Chrome (set `CHROME_PATH` for another Chromium bin
 
 Next.js (App Router), TypeScript, Tailwind, shadcn/ui, Prisma + SQLite.
 
-Payments are mocked. There is no HPE SSO and no live Pluxee or UPI gateway; SMS needs a provider, or `DEMO_MODE=1` for on-screen codes.
+Payments are mocked. There is no SSO and no live Pluxee or UPI gateway; SMS needs a provider, or `DEMO_MODE=1` for on-screen codes.

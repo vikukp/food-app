@@ -77,7 +77,7 @@ export function statusLabel(status: string) {
 
 // Unique per stall per campus day; the database enforces it and the caller retries on a clash.
 export function randomToken() {
-  return `IWF-${randomInt(1000, 10000)}`;
+  return `T-${randomInt(1000, 10000)}`;
 }
 
 export function paymentLabel(method: string) {
