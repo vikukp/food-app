@@ -383,6 +383,28 @@ await step("forgot PIN: a code sets a new PIN and signs out other devices", asyn
   return "other device signed out; old PIN refused; new PIN works";
 });
 
+await step("a dish in the bag turns Add into − 1 +, and the header marks the page", async () => {
+  await emp.goto(`${BASE}/stalls/momos`, { waitUntil: "networkidle" });
+  const current = (await emp.locator("header a[aria-current='page']").innerText()).trim();
+  check(current === "Stalls", `the header marks "${current}" on a stall page`);
+  const first = emp.locator("main li").filter({ has: emp.getByRole("button", { name: "Add", exact: true }) }).first();
+  const name = (await first.locator("p.font-medium").first().innerText()).trim();
+  // Pin the row by its dish: once it is in the bag it no longer has an Add button.
+  const row = emp.locator("main li").filter({ hasText: name }).first();
+  await row.getByRole("button", { name: "Add", exact: true }).click();
+  const plus = row.getByRole("button", { name: `One more ${name}` });
+  await plus.waitFor({ timeout: 5000 });
+  check(await plus.evaluate((b) => b === document.activeElement), "focus did not move to + after Add");
+  check((await row.getByRole("button", { name: "Add", exact: true }).count()) === 0, "Add is still shown next to the stepper");
+  await plus.click();
+  await row.getByRole("button", { name: `One less ${name}` }).click();
+  await row.getByRole("button", { name: `Remove ${name}` }).click();
+  const add = row.getByRole("button", { name: "Add", exact: true });
+  await add.waitFor({ timeout: 5000 });
+  check(await add.evaluate((b) => b === document.activeElement), "focus was lost when − took the last one out");
+  return `${name}: Add → − 1 + → 2 → 1 → Add again`;
+});
+
 let token = "";
 await step("order from a stall and get a QR token", async () => {
   await emp.goto(`${BASE}/stalls/momos`, { waitUntil: "networkidle" });
@@ -391,10 +413,12 @@ await step("order from a stall and get a QR token", async () => {
   await emp.locator("[data-slot='sheet-content'] a:has-text('Choose pickup time')").click();
   await emp.waitForURL(`${BASE}/checkout`);
   await waitForPay(emp);
+  check((await emp.locator("main a[href='/stalls']", { hasText: "Back to stalls" }).count()) === 1, "checkout has no way back to the stalls");
   await emp.locator("main button:has-text('Pay ₹')").click();
   await emp.waitForURL(/\/orders\/[^/]+$/);
   token = (await emp.locator("main").innerText()).match(/IWF-\d{4}/)?.[0] ?? "";
   check(token && (await emp.locator("main img[alt*='QR']").count()) === 1, "token or QR missing");
+  check((await emp.locator("header a[aria-current='page']").innerText()).trim() === "Orders", "the header does not mark Orders on a ticket");
   return token;
 });
 
@@ -480,10 +504,12 @@ await step("changing the counter PIN signs out other tablets", async () => {
 });
 
 // Adds the first item on the stall page open in `page`; returns its name.
+// Read before the click: once added, the row shows − 1 + and no longer matches.
 async function addFirstItem(page) {
   const row = page.locator("main li").filter({ has: page.locator("button:has-text('Add')") }).first();
-  await row.getByRole("button", { name: /^Add/ }).click();
-  return (await row.locator("p.font-medium").first().innerText()).trim();
+  const name = (await row.locator("p.font-medium").first().innerText()).trim();
+  await row.getByRole("button", { name: "Add", exact: true }).click();
+  return name;
 }
 
 // Empties the bag (it lives in localStorage), then adds the first item of one stall.
@@ -918,6 +944,8 @@ const AXE = readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.mi
 
 async function axeViolations(page) {
   await page.locator("main").waitFor();
+  // A toast fading in or out is caught at part opacity, which reads as low contrast.
+  await page.locator("[data-sonner-toast]").first().waitFor({ state: "detached", timeout: 8000 }).catch(() => {});
   await page.evaluate(AXE);
   const result = await page.evaluate(() =>
     window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21aa", "best-practice"] }),
@@ -946,8 +974,9 @@ await step("pages pass an automated accessibility audit (axe, WCAG 2.1 AA)", asy
     await emp.goto(`${BASE}${path}`);
     await audit(emp);
   }
-  // Checkout with a bag from two stalls.
+  // A menu showing − 1 +, then checkout with a bag from two stalls.
   await freshBag(emp, "momos");
+  await audit(emp);
   await emp.goto(`${BASE}/stalls/idli`, { waitUntil: "networkidle" });
   await addFirstItem(emp);
   await emp.goto(`${BASE}/checkout`);

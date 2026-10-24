@@ -44,7 +44,7 @@ export default async function VendorMenuPage({
 
   return (
     <div className="flex min-h-full flex-col">
-      <SiteHeader variant="vendor" stallName={stall.name} />
+      <SiteHeader variant="vendor" stallName={stall.name} current="menu" />
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
         <h1 className="text-2xl font-semibold tracking-tight">Menu and prices</h1>
         <p className="mt-1 text-sm text-muted-foreground">

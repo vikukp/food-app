@@ -1,4 +1,4 @@
-import { CartButton, MobileCartBar } from "@/components/cart-sheet";
+import { CartBar, CartButton } from "@/components/cart-sheet";
 import { SiteHeader } from "@/components/site-header";
 import { StallGrid } from "@/components/stall-grid";
 import { isStallOpen, waitCopy } from "@/lib/hours";
@@ -38,8 +38,8 @@ export default async function StallsPage() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <SiteHeader variant="employee" name={session?.name} right={<CartButton />} />
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">
+      <SiteHeader variant="employee" name={session?.name} current="stalls" right={<CartButton />} />
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-6 pb-24">
         <h1 className="text-2xl font-semibold tracking-tight">IWF food court</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {openCount} of {stalls.length} stalls open now (IST) · order now, pick up at your slot.
@@ -49,7 +49,7 @@ export default async function StallsPage() {
           <StallGrid stalls={stalls} />
         </div>
       </main>
-      <MobileCartBar />
+      <CartBar />
     </div>
   );
 }

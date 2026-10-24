@@ -19,13 +19,18 @@ import {
 import { stallTotal } from "@/lib/cart";
 import { formatInr } from "@/lib/money";
 
+// Just the icon on phones, so the header's links still fit on one line.
+function BagLabel() {
+  return <span className="sr-only sm:not-sr-only">Bag</span>;
+}
+
 export function CartButton() {
   const { count, hydrated } = useCart();
   if (!hydrated) {
     return (
       <Button variant="ghost" size="sm" className="text-emerald-50" disabled>
         <ShoppingBagIcon />
-        Bag
+        <BagLabel />
       </Button>
     );
   }
@@ -41,7 +46,7 @@ export function CartButton() {
         }
       >
         <ShoppingBagIcon />
-        Bag
+        <BagLabel />
         {count > 0 ? (
           <span className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-amber-400 text-[10px] font-semibold text-emerald-950">
             {count}
@@ -129,12 +134,13 @@ function CartPanel() {
   );
 }
 
-export function MobileCartBar() {
+// The way on to checkout from any menu once the bag has something in it.
+export function CartBar() {
   const { cart, count, total, hydrated } = useCart();
   if (!hydrated || count === 0) return null;
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 p-3 backdrop-blur md:hidden">
-      <Button className="h-11 w-full justify-between px-4" render={<Link href="/checkout" />}>
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 p-3 backdrop-blur">
+      <Button className="mx-auto flex h-11 w-full max-w-3xl justify-between px-4" render={<Link href="/checkout" />}>
         <span className="truncate">
           {count} item{count === 1 ? "" : "s"} ·{" "}
           {cart.stalls.length === 1 ? cart.stalls[0].name : `${cart.stalls.length} stalls`}
