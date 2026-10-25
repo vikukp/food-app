@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Assistant } from "@/components/assistant";
 import { CartBar, CartButton } from "@/components/cart-sheet";
 import { MenuList } from "@/components/menu-list";
 import { SiteHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { VegDot } from "@/components/veg-dot";
+import { assistantConfig } from "@/lib/assistant/config";
 import { hoursLabel, isStallOpen, opensIn, opensLaterToday, waitCopy } from "@/lib/hours";
 import { ratingCopy, stallRatings } from "@/lib/ratings";
 import { activeOrderCounts } from "@/lib/stall-load";
@@ -92,6 +94,7 @@ export default async function StallPage({
         </div>
       </main>
       <CartBar />
+      {session && assistantConfig() ? <Assistant owner={session.uid} /> : null}
     </div>
   );
 }

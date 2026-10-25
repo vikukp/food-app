@@ -1,6 +1,8 @@
+import { Assistant } from "@/components/assistant";
 import { CartBar, CartButton } from "@/components/cart-sheet";
 import { SiteHeader } from "@/components/site-header";
 import { StallGrid } from "@/components/stall-grid";
+import { assistantConfig } from "@/lib/assistant/config";
 import { brandNames } from "@/lib/brand";
 import { isStallOpen, waitCopy } from "@/lib/hours";
 import { ratingCopy, stallRatings } from "@/lib/ratings";
@@ -51,6 +53,7 @@ export default async function StallsPage() {
         </div>
       </main>
       <CartBar />
+      {session && assistantConfig() ? <Assistant owner={session.uid} /> : null}
     </div>
   );
 }

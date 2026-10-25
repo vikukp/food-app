@@ -21,6 +21,10 @@ services:
       # TWILIO_FROM: ""
       # Food court managers (by mobile number, see README):
       # ADMIN_PHONES: "9845012345"
+      # AI ordering assistant (see README); off until AI_API_KEY is set:
+      # AI_API_KEY: ""
+      # AI_ROUTER: anthropic
+      # AI_MODEL: claude-opus-5-5
       # Name and logo of this copy (see Branding in README):
       # BRAND_NAME: "Acme Pune Food Court"
       # BRAND_SHORT_NAME: "Food Court"

@@ -20,6 +20,12 @@ jobs:
       # Demo mode so the browser suite can read sign-in codes off the screen.
       DEMO_MODE: "1"
       NEXT_TELEMETRY_DISABLED: "1"
+      # The AI assistant talks to e2e/ai-stub.mjs, which the browser suite starts: no real key.
+      AI_API_KEY: e2e-key
+      AI_ROUTER: custom
+      AI_BASE_URL: http://127.0.0.1:43190
+      AI_MODEL: stub-model
+      AI_STUB_PORT: "43190"
     steps:
       - uses: actions/checkout@v4
 
