@@ -2,14 +2,16 @@
 
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import {
+  BAG_IDLE_MS,
   CART_STORAGE_KEY,
   EMPTY_CART,
   addToCart,
   applyPrices,
   cartCount,
   cartTotal,
-  parseStoredCart,
   putStallLines,
+  readSavedBag,
+  savedBag,
   removeStall as withoutStall,
   setLineQty,
   type CartLine,
@@ -37,6 +39,8 @@ type CartContextValue = {
 const CartContext = createContext<CartContextValue | null>(null);
 
 let snapshot: CartState = EMPTY_CART;
+// When the bag last changed: a bag left alone for BAG_IDLE_MS starts empty.
+let savedAt = 0;
 let didRead = false;
 // Each employee gets their own saved bag, so whoever signs in next on a shared
 // device starts empty. Set by the provider before anything reads the bag.
@@ -61,7 +65,9 @@ function emit() {
 
 function readStorage(): CartState {
   try {
-    return parseStoredCart(localStorage.getItem(storageKey));
+    const saved = readSavedBag(localStorage.getItem(storageKey), Date.now());
+    savedAt = saved.at;
+    return saved.cart;
   } catch {
     // Storage blocked: start empty.
     return EMPTY_CART;
@@ -88,20 +94,34 @@ function onStorage(event: StorageEvent) {
   emit();
 }
 
+// Coming back to a tab left open: a bag untouched for that long is from an earlier visit.
+function onVisible() {
+  if (document.visibilityState === "visible" && snapshot.stalls.length && Date.now() - savedAt > BAG_IDLE_MS) {
+    writeCart(EMPTY_CART);
+  }
+}
+
 function subscribe(listener: () => void) {
-  if (listeners.size === 0) window.addEventListener("storage", onStorage);
+  if (listeners.size === 0) {
+    window.addEventListener("storage", onStorage);
+    document.addEventListener("visibilitychange", onVisible);
+  }
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
-    if (listeners.size === 0) window.removeEventListener("storage", onStorage);
+    if (listeners.size === 0) {
+      window.removeEventListener("storage", onStorage);
+      document.removeEventListener("visibilitychange", onVisible);
+    }
   };
 }
 
 function writeCart(next: CartState) {
   snapshot = next;
+  savedAt = Date.now();
   didRead = true;
   try {
-    localStorage.setItem(storageKey, JSON.stringify(next));
+    localStorage.setItem(storageKey, savedBag(next, savedAt));
   } catch {
     // Storage blocked (private mode, embedded webview, quota): keep the bag in memory for this tab.
   }
