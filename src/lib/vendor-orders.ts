@@ -5,6 +5,8 @@ export type VendorOrder = {
   token: string;
   status: string;
   pickupSlot: string;
+  // When that slot is (ISO); null on orders from before it was stored.
+  pickupAt: string | null;
   paymentLabel: string;
   totalInr: number;
   employeeName: string;
@@ -31,6 +33,7 @@ export function toVendorOrder(order: {
   token: string;
   status: string;
   pickupSlot: string;
+  pickupAt: Date | null;
   paymentMethod: string;
   totalInr: number;
   employeeName: string;
@@ -46,6 +49,7 @@ export function toVendorOrder(order: {
     token: order.token,
     status: order.status,
     pickupSlot: order.pickupSlot,
+    pickupAt: order.pickupAt?.toISOString() ?? null,
     paymentLabel: paymentLabel(order.paymentMethod),
     totalInr: order.totalInr,
     employeeName: order.employeeName,

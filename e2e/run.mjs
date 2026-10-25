@@ -529,6 +529,20 @@ async function freshBag(page, stallId) {
   return addFirstItem(page);
 }
 
+// The chat lives in the page's memory, so the next page load starts it over.
+const clearBag = (page) =>
+  page.evaluate(() => {
+    for (const key of Object.keys(localStorage)) if (key.startsWith("fc-cart")) localStorage.removeItem(key);
+  });
+
+// npm run demo:queue: fake orders waiting at a counter, in the database the
+// server reads. Only with AI_STUB_PORT set, when the server runs on this machine.
+const fakeQueue = (...args) =>
+  execFileSync(process.execPath, ["--import", "tsx", "scripts/fake-queue.ts", ...args], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    stdio: "pipe",
+  });
+
 const payButton = (page) => page.locator("main aside button:has-text('Pay ₹')");
 
 // Checkout is ready to pay: the bag has loaded and nothing blocks the Pay button.
@@ -870,6 +884,52 @@ await step("a full pickup slot is not offered, and the queue sets the earliest s
   }
 });
 
+await step("the counter keeps pre-orders under Later and calls them 20 minutes before pickup", async () => {
+  // The 24-hour sandwich counter, on a clock this test can move forward.
+  const vendor = await vendorSignIn("vendor-slots", "sandwich");
+  await vendor.clock.install();
+  await vendor.reload();
+  let preorder = "";
+  try {
+    // The third pickup slot offered is 40 to 55 minutes away: a pre-order.
+    await freshBag(emp, "sandwich");
+    await emp.goto(`${BASE}/checkout`);
+    await waitForPay(emp);
+    const choice = emp.getByRole("group", { name: /^Pickup time at / }).locator("button:not([disabled])").nth(2);
+    const slot = (await choice.innerText()).split("\n")[0];
+    await choice.click();
+    await emp.locator("main button:has-text('Pay ₹')").click();
+    await emp.waitForURL(/\/orders\/[^/]+$/);
+    preorder = (await emp.locator("main").innerText()).match(/\bT-\d{4}\b/)?.[0] ?? "";
+
+    // It does not lengthen the wait others see until it is due.
+    if (aiStub) {
+      const queue = fakeQueue().toString();
+      check(/sandwich · Sandwich & Wrap Lab\s+0\s+0\s+Short wait/.test(queue), `the pre-order counts in today's queue:\n${queue}`);
+    }
+
+    const later = vendor.getByRole("region", { name: "Later" });
+    await later.locator("li", { hasText: preorder }).waitFor({ timeout: 8000 });
+    const heading = later.getByRole("heading", { name: new RegExp(`^Pickup ${slot} · start at `) });
+    check((await heading.count()) === 1, `no "start at" heading for the ${slot} slot under Later`);
+
+    // Past its start time (pickup less 20 minutes), still before pickup: the counter calls it.
+    await vendor.clock.fastForward("36:00");
+    await vendor.getByText(`Time to start ${preorder}`).waitFor({ timeout: 10_000 });
+    check((await later.locator("li", { hasText: preorder }).count()) === 0, "the pre-order stayed under Later");
+    return `${preorder} for ${slot} waited under Later, then was called at its start time`;
+  } finally {
+    // Cancel it, so the sandwich counter is empty for the steps after.
+    if (preorder) {
+      const card = vendor.locator("main li", { hasText: preorder });
+      await card.getByRole("button", { name: "Cancel", exact: true }).click();
+      await card.getByRole("button", { name: "Kitchen is closing" }).click();
+      await vendor.getByText(`${preorder} cancelled`).waitFor();
+    }
+    await vendor.context().close();
+  }
+});
+
 await step("a stall's dietary info shows on the menu and the Jain filter uses it", async () => {
   const vendor = await vendorSignIn("vendor-dietary", "idli");
   await vendor.goto(`${BASE}/vendor/menu`);
@@ -1024,20 +1084,6 @@ async function axeViolations(page) {
   );
   return result.violations.map((v) => `${new URL(page.url()).pathname}: ${v.id} (${v.nodes.length})`);
 }
-
-// The chat lives in the page's memory, so the next page load starts it over.
-const clearBag = (page) =>
-  page.evaluate(() => {
-    for (const key of Object.keys(localStorage)) if (key.startsWith("fc-cart")) localStorage.removeItem(key);
-  });
-
-// npm run demo:queue: fake orders waiting at a counter, in the database the
-// server reads. Only with AI_STUB_PORT set, when the server runs on this machine.
-const fakeQueue = (...args) =>
-  execFileSync(process.execPath, ["--import", "tsx", "scripts/fake-queue.ts", ...args], {
-    cwd: fileURLToPath(new URL("..", import.meta.url)),
-    stdio: "pipe",
-  });
 
 await step("the AI assistant fills the bag from a chat, and paying stays with the person", async () => {
   if (!aiStub) return "skipped: AI_STUB_PORT is not set";

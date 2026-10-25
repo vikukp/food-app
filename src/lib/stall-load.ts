@@ -1,4 +1,5 @@
 import { pickupLead } from "@/lib/hours";
+import { inQueueNow } from "@/lib/kitchen-slots";
 import { getPickupSlots, type PickupSlot } from "@/lib/pickup-slots";
 import { prisma } from "@/lib/prisma";
 
@@ -7,18 +8,23 @@ type StallTimes = { id: string; openTime: string; closeTime: string; prepMinutes
 // Orders older than this that were never closed out are leftovers, not queue.
 export const STALE_ORDER_MS = 12 * 60 * 60_000;
 
-// Orders each stall still has to cook (placed or preparing).
-export async function activeOrderCounts(stallIds?: string[]) {
-  const rows = await prisma.order.groupBy({
-    by: ["stallId"],
+// Orders each stall has to cook now: being prepared, or due to start
+// (kitchen-slots.ts). Pre-orders further out count once they are due, so
+// they neither lengthen today's waits nor push the earliest pickup back.
+export async function activeOrderCounts(stallIds?: string[], now = Date.now()) {
+  const orders = await prisma.order.findMany({
     where: {
       status: { in: ["PLACED", "PREPARING"] },
-      createdAt: { gte: new Date(Date.now() - STALE_ORDER_MS) },
+      createdAt: { gte: new Date(now - STALE_ORDER_MS) },
       ...(stallIds ? { stallId: { in: stallIds } } : {}),
     },
-    _count: { _all: true },
+    select: { stallId: true, status: true, pickupAt: true },
   });
-  return new Map(rows.map((row) => [row.stallId, row._count._all]));
+  const counts = new Map<string, number>();
+  for (const order of orders) {
+    if (inQueueNow(order, now)) counts.set(order.stallId, (counts.get(order.stallId) ?? 0) + 1);
+  }
+  return counts;
 }
 
 // Pickup slots for each stall, starting after its current wait, with how many

@@ -1,4 +1,5 @@
-// Browser-side nudges for "your food is ready". Each one is best effort: a
+// Browser-side nudges: "your food is ready" for employees, and the chime the
+// counter plays when an order is due to start. Each one is best effort: a
 // phone may block sound until the page has been touched, a desktop may have
 // no vibration motor, and notifications need the employee's permission.
 
@@ -11,7 +12,7 @@ export async function askToNotify() {
   return (await Notification.requestPermission()) === "granted";
 }
 
-function chime() {
+export function chime() {
   try {
     const Context = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Context) return;
