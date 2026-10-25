@@ -15,7 +15,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { EMPTY_CHAT, KEPT_TURNS, isStale, readChat, type ChatTurn, type StoredChat } from "@/lib/assistant/chat-store";
+import { EMPTY_CHAT, KEPT_TURNS, isStale, type ChatTurn, type StoredChat } from "@/lib/assistant/chat-store";
 import { MAX_MESSAGE_LENGTH } from "@/lib/assistant/config";
 import type { BagChange } from "@/lib/assistant/tools";
 import { formatInr } from "@/lib/money";
@@ -31,25 +31,23 @@ function firstSuggestions(usual: string | null, ordered: boolean) {
   return SUGGESTIONS;
 }
 
-// Signing out clears the chat with the rest of the site's storage; it also
-// starts over after 30 idle minutes (chat-store.ts).
-function loadChat(key: string): StoredChat {
-  if (typeof window === "undefined") return EMPTY_CHAT;
-  try {
-    return readChat(sessionStorage.getItem(key));
-  } catch {
-    return EMPTY_CHAT;
-  }
+// Each person's chat, for as long as the app stays open in this tab: moving
+// between pages keeps it, and reloading, reopening the app or signing in
+// again starts a new one. Only ever written in the browser (an effect), and
+// nothing of it is saved on the device.
+const chats = new Map<string, StoredChat>();
+
+function savedChat(owner: string) {
+  const chat = chats.get(owner) ?? EMPTY_CHAT;
+  return isStale(chat) ? EMPTY_CHAT : chat;
 }
 
 // Ask the AI assistant: it searches the menus and fills the bag, and the
 // person checks the bag and pays as usual (see /api/assistant).
 export function Assistant({ owner, usual = null, ordered = false }: { owner: string; usual?: string | null; ordered?: boolean }) {
   const { cart, count, total, hydrated, addItem, setQty } = useCart();
-  // v1 kept a bare list of turns; v2 adds when the last one was said.
-  const key = `fc-assistant-v2:${owner}`;
   const [open, setOpen] = useState(false);
-  const [chat, setChat] = useState<StoredChat>(() => loadChat(key));
+  const [chat, setChat] = useState<StoredChat>(() => savedChat(owner));
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const log = useRef<HTMLDivElement>(null);
@@ -57,10 +55,8 @@ export function Assistant({ owner, usual = null, ordered = false }: { owner: str
   const { turns } = chat;
 
   useEffect(() => {
-    try {
-      sessionStorage.setItem(key, JSON.stringify({ at: chat.at, turns: chat.turns.slice(-KEPT_TURNS) }));
-    } catch {}
-  }, [key, chat]);
+    chats.set(owner, { at: chat.at, turns: chat.turns.slice(-KEPT_TURNS) });
+  }, [owner, chat]);
 
   useEffect(() => {
     log.current?.scrollTo({ top: log.current.scrollHeight });
