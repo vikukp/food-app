@@ -512,6 +512,9 @@ async function addFirstItem(page) {
   const row = page.locator("main li").filter({ has: page.locator("button:has-text('Add')") }).first();
   const name = (await row.locator("p.font-medium").first().innerText()).trim();
   await row.getByRole("button", { name: "Add", exact: true }).click();
+  // Every Add shows a toast. Wait for it, so an axe check straight after
+  // waits it out instead of catching it half faded in.
+  await page.locator("[data-sonner-toast]").first().waitFor();
   return name;
 }
 
