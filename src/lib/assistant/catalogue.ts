@@ -1,5 +1,5 @@
 import { allergenLabels, hasEgg } from "@/lib/dietary";
-import { hoursLabel, isStallOpen, opensLaterToday, waitCopy } from "@/lib/hours";
+import { hoursLabel, isStallOpen, opensLaterToday, waitCopy, waitMinutes } from "@/lib/hours";
 import { effectivePrice } from "@/lib/pricing";
 import { prisma } from "@/lib/prisma";
 import { activeOrderCounts } from "@/lib/stall-load";
@@ -34,6 +34,10 @@ export type CatalogueStall = {
   openTime: string;
   opensLaterToday: boolean;
   hours: string;
+  // Orders the counter still has to cook, and about how many minutes a new
+  // order waits (null while the stall is closed or paused).
+  queue: number;
+  waitMinutes: number | null;
   wait: string | null;
   dishes: Dish[];
 };
@@ -51,6 +55,7 @@ export async function loadCatalogue(now = new Date()): Promise<Catalogue> {
   return {
     stalls: stalls.map((stall) => {
       const open = !stall.paused && isStallOpen(stall.openTime, stall.closeTime, now);
+      const queue = active.get(stall.id) ?? 0;
       return {
         id: stall.id,
         name: stall.name,
@@ -62,7 +67,9 @@ export async function loadCatalogue(now = new Date()): Promise<Catalogue> {
         openTime: stall.openTime,
         opensLaterToday: opensLaterToday(stall.openTime, now),
         hours: hoursLabel(stall.openTime, stall.closeTime),
-        wait: open ? waitCopy(active.get(stall.id) ?? 0, stall.prepMinutes) : null,
+        queue,
+        waitMinutes: open ? waitMinutes(queue, stall.prepMinutes) : null,
+        wait: open ? waitCopy(queue, stall.prepMinutes) : null,
         dishes: stall.items.map((item) => ({
           id: item.id,
           stallId: stall.id,

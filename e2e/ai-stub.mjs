@@ -1,9 +1,18 @@
 // A stand-in for the model behind the AI ordering assistant, so tests need no
 // real key. It speaks Anthropic's Messages API and OpenAI's Responses API:
 // asked for "2 masala dosa", it searches the menus, adds two of the first dish
-// found and says so. Point the app at it with AI_ROUTER=custom (or openai,
-// with /v1 on the address) and AI_BASE_URL.
+// found and says so, offering a quicker counter as the real model is told to.
+// Point the app at it with AI_ROUTER=custom (or openai, with /v1 on the
+// address) and AI_BASE_URL.
 import { createServer } from "node:http";
+
+function added(result) {
+  const quicker = result.quicker_elsewhere?.[0];
+  const offer = quicker
+    ? ` ${result.stall} has about a ${result.wait_minutes} min wait; ${quicker.dish} at ${quicker.stall} takes about ${quicker.wait_minutes} min. Want that instead?`
+    : "";
+  return `Added ${result.added} ${result.dish} from ${result.stall}. Your bag is now ₹${result.bag.total}.${offer}`;
+}
 
 function message(content, stopReason) {
   return {
@@ -39,10 +48,7 @@ function answer(request) {
     );
   }
   if (result.error) return message([{ type: "text", text: `I couldn't add that: ${result.error}` }], "end_turn");
-  return message(
-    [{ type: "text", text: `Added ${result.added} ${result.dish} from ${result.stall}. Your bag is now ₹${result.bag.total}.` }],
-    "end_turn",
-  );
+  return message([{ type: "text", text: added(result) }], "end_turn");
 }
 
 // The same over the Responses API: each tool call comes with encrypted
@@ -96,7 +102,7 @@ function answerResponse(request) {
     return [200, response(callTool("call_add", "add_to_bag", { item_id: dish.item_id, quantity }))];
   }
   if (result.error) return [200, response(say(`I couldn't add that: ${result.error}`))];
-  return [200, response(say(`Added ${result.added} ${result.dish} from ${result.stall}. Your bag is now ₹${result.bag.total}.`))];
+  return [200, response(say(added(result)))];
 }
 
 // Port 0 picks a free one: await `listening` for it.
