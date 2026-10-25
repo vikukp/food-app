@@ -1,8 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
-import { modelCaller, runAssistant, type ChatTurn } from "@/lib/assistant/agent";
+import OpenAI from "openai";
+import { runAssistant, systemPrompt, type ChatTurn } from "@/lib/assistant/agent";
+import { anthropicChat } from "@/lib/assistant/anthropic";
 import { loadCatalogue } from "@/lib/assistant/catalogue";
 import { MAX_MESSAGE_LENGTH, assistantConfig } from "@/lib/assistant/config";
+import { openaiChat } from "@/lib/assistant/openai";
 import { brandNames } from "@/lib/brand";
 import { parseStoredCart } from "@/lib/cart";
 import { consume } from "@/lib/rate-limit";
@@ -28,10 +31,18 @@ function parseInput(raw: unknown) {
   return { turns, bag: parseStoredCart(JSON.stringify(raw.bag ?? null)) };
 }
 
+const NOT_AVAILABLE = "The assistant is not available right now. You can still add dishes from the menus.";
+
 function failure(error: unknown) {
-  if (error instanceof Anthropic.RateLimitError) return "The assistant is busy right now. Try again in a minute.";
-  if (error instanceof Anthropic.APIConnectionError) return "The assistant could not be reached. Try again in a moment.";
-  return "The assistant is not available right now. You can still add dishes from the menus.";
+  // OpenAI also answers 429 when the account is out of credit, which waiting won't fix.
+  if (error instanceof OpenAI.RateLimitError && error.code === "insufficient_quota") return NOT_AVAILABLE;
+  if (error instanceof Anthropic.RateLimitError || error instanceof OpenAI.RateLimitError) {
+    return "The assistant is busy right now. Try again in a minute.";
+  }
+  if (error instanceof Anthropic.APIConnectionError || error instanceof OpenAI.APIConnectionError) {
+    return "The assistant could not be reached. Try again in a moment.";
+  }
+  return NOT_AVAILABLE;
 }
 
 // Chat with the ordering assistant. The answer streams one JSON object per
@@ -75,13 +86,12 @@ export async function POST(request: Request) {
       const send = (event: Record<string, unknown>) => controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
       const started = Date.now();
       try {
+        const system = systemPrompt(brandNames().name);
+        const chat = config.api === "openai" ? openaiChat(config, system, input.turns) : anthropicChat(config, system, input.turns);
         const result = await runAssistant({
-          call: modelCaller(config),
-          config,
+          chat,
           catalogue: await loadCatalogue(),
           bag: input.bag,
-          turns: input.turns,
-          brandName: brandNames().name,
           onStatus: (text) => send({ type: "status", text }),
         });
         const { usage } = result;
@@ -91,7 +101,10 @@ export async function POST(request: Request) {
         );
         send({ type: "reply", text: result.reply, changes: result.changes });
       } catch (error) {
-        const detail = error instanceof Anthropic.APIError ? `${error.status ?? "-"} ${error.name}: ${error.message}` : String(error);
+        const detail =
+          error instanceof Anthropic.APIError || error instanceof OpenAI.APIError
+            ? `${error.status ?? "-"} ${error.name}: ${error.message}`
+            : String(error);
         console.error(`[assistant] ${config.router} ${config.model} failed: ${detail}`);
         send({ type: "error", text: failure(error) });
       } finally {

@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { MAX_STEPS, requestParams, runAssistant, toMessages, type CallModel } from "@/lib/assistant/agent";
+import { startAiStub } from "../../e2e/ai-stub.mjs";
+import { MAX_STEPS, runAssistant, systemPrompt, toMessages } from "@/lib/assistant/agent";
+import { anthropicChat, requestParams, type CallModel } from "@/lib/assistant/anthropic";
 import type { Catalogue, CatalogueStall, Dish } from "@/lib/assistant/catalogue";
 import { assistantConfig, type AssistantConfig } from "@/lib/assistant/config";
-import { runTool, type ToolContext } from "@/lib/assistant/tools";
+import { openaiChat, responseParams, type CreateResponse } from "@/lib/assistant/openai";
+import { TOOLS, runTool, type ToolContext } from "@/lib/assistant/tools";
 import { EMPTY_CART, addToCart, type CartState } from "@/lib/cart";
 
 function dish(stallId: string, slug: string, name: string, price: number, extra: Partial<Dish> = {}): Dish {
@@ -104,6 +107,20 @@ describe("assistant settings", () => {
     assert.equal(cloudflare.headers["x-api-key"], "sk");
     assert.equal(cloudflare.headers.authorization, null);
     assert.equal(cloudflare.claudeFeatures, true);
+  });
+
+  it("take OpenAI's own API, with GPT-6.1 Sol unless AI_MODEL names another", () => {
+    const openai = assistantConfig({ AI_API_KEY: "sk-proj", AI_ROUTER: "openai", AI_CLAUDE_FEATURES: "on" })!;
+    assert.equal(openai.api, "openai");
+    assert.equal(openai.model, "gpt-6.1-sol");
+    assert.equal(openai.baseURL, "https://api.openai.com/v1");
+    assert.equal(openai.apiKey, "sk-proj");
+    assert.deepEqual(openai.headers, {});
+    // Claude-only fields never go to OpenAI.
+    assert.equal(openai.claudeFeatures, false);
+    assert.equal(openai.effort, "low");
+    assert.equal(assistantConfig({ AI_API_KEY: "k", AI_ROUTER: "openai", AI_MODEL: "gpt-6-luna" })!.model, "gpt-6-luna");
+    assert.equal(assistantConfig({ AI_API_KEY: "k" })!.api, "anthropic");
   });
 
   it("refuse settings that cannot work, naming them in the log", (t) => {
@@ -228,6 +245,9 @@ describe("assistant loop", () => {
     return { call, seen };
   }
 
+  const ask = (call: CallModel) =>
+    runAssistant({ chat: anthropicChat(config, systemPrompt("B"), [{ role: "user", text: "x" }], call), catalogue, bag: EMPTY_CART });
+
   it("searches, adds, and answers, sending tool results back", async () => {
     const { call, seen } = scripted(
       { stop: "tool_use", content: [{ type: "tool_use", id: "t1", name: "search_menu", input: { query: "masala dosa" } }] },
@@ -236,12 +256,9 @@ describe("assistant loop", () => {
     );
     const statuses: string[] = [];
     const result = await runAssistant({
-      call,
-      config,
+      chat: anthropicChat(config, systemPrompt("Acme Food Court"), [{ role: "user", text: "2 masala dosa" }], call),
       catalogue,
       bag: EMPTY_CART,
-      turns: [{ role: "user", text: "2 masala dosa" }],
-      brandName: "Acme Food Court",
       onStatus: (status) => statuses.push(status),
     });
     assert.equal(result.reply, "Added 2 masala dosas. Your bag is ₹180.");
@@ -260,17 +277,26 @@ describe("assistant loop", () => {
 
   it("stops after a refusal or too many steps, and runs no tool cut off at max_tokens", async () => {
     const refused = scripted({ stop: "refusal", content: [] });
-    const r1 = await runAssistant({ call: refused.call, config, catalogue, bag: EMPTY_CART, turns: [{ role: "user", text: "x" }], brandName: "B" });
-    assert.match(r1.reply, /can't help/);
+    assert.match((await ask(refused.call)).reply, /can't help/);
 
     const looping = scripted({ stop: "tool_use", content: [{ type: "tool_use", id: "t", name: "add_to_bag", input: { item_id: "dosa-filter-coffee" } }] });
-    const r2 = await runAssistant({ call: looping.call, config, catalogue, bag: EMPTY_CART, turns: [{ role: "user", text: "x" }], brandName: "B" });
+    const r2 = await ask(looping.call);
     assert.equal(r2.steps, MAX_STEPS);
     assert.match(r2.reply, /couldn't finish/);
 
     const truncated = scripted({ stop: "max_tokens", content: [{ type: "tool_use", id: "t", name: "add_to_bag", input: { item_id: "dosa-masala" } }] });
-    const r3 = await runAssistant({ call: truncated.call, config, catalogue, bag: EMPTY_CART, turns: [{ role: "user", text: "x" }], brandName: "B" });
-    assert.equal(r3.changes.length, 0);
+    assert.equal((await ask(truncated.call)).changes.length, 0);
+  });
+
+  it("asks again after a paused turn, keeping what came so far", async () => {
+    const { call, seen } = scripted(
+      { stop: "pause_turn", content: [{ type: "text", text: "Looking…" }] },
+      { stop: "end_turn", content: [{ type: "text", text: "Here you go." }] },
+    );
+    const result = await ask(call);
+    assert.equal(result.reply, "Here you go.");
+    assert.equal(result.steps, 2);
+    assert.deepEqual(seen[1].messages.at(-1), { role: "assistant", content: [{ type: "text", text: "Looking…" }] });
   });
 
   it("turns the chat into alternating messages that start with the person", () => {
@@ -302,5 +328,128 @@ describe("assistant loop", () => {
     const routed = requestParams(config, "s", []);
     for (const field of ["cache_control", "output_config", "betas", "fallbacks"]) assert.equal(field in routed, false, field);
     assert.equal(routed.max_tokens, 16000);
+  });
+});
+
+describe("assistant over OpenAI", () => {
+  const config = assistantConfig({ AI_API_KEY: "sk-test", AI_ROUTER: "openai" })!;
+
+  type Item = Record<string, unknown>;
+  const usage = { input_tokens: 100, input_tokens_details: { cached_tokens: 60, cache_write_tokens: 10 }, output_tokens: 20 };
+  function scripted(...replies: Item[]) {
+    const seen: Parameters<CreateResponse>[0][] = [];
+    const call: CreateResponse = async (params) => {
+      seen.push(structuredClone(params));
+      const reply = replies[Math.min(seen.length - 1, replies.length - 1)];
+      return { id: `resp_${seen.length}`, status: "completed", usage, ...reply } as unknown as Awaited<ReturnType<CreateResponse>>;
+    };
+    return { call, seen };
+  }
+  const reasoning = (id: string): Item => ({ type: "reasoning", id: `rs_${id}`, summary: [], encrypted_content: `sealed-${id}` });
+  const functionCall = (id: string, name: string, args: string): Item => ({
+    type: "function_call",
+    id: `fc_${id}`,
+    call_id: id,
+    name,
+    arguments: args,
+    status: "completed",
+  });
+  const said = (part: Item): Item => ({ type: "message", id: "msg_1", role: "assistant", status: "completed", content: [part] });
+  const text = (value: string) => said({ type: "output_text", text: value, annotations: [] });
+  const ask = (call: CreateResponse, message = "x") =>
+    runAssistant({ chat: openaiChat(config, systemPrompt("Acme Food Court"), [{ role: "user", text: message }], call), catalogue, bag: EMPTY_CART });
+
+  it("searches, adds and answers, sending the reasoning and tool results back", async () => {
+    const { call, seen } = scripted(
+      { output: [reasoning("c1"), functionCall("c1", "search_menu", '{"query":"masala dosa"}')] },
+      { output: [reasoning("c2"), functionCall("c2", "add_to_bag", '{"item_id":"dosa-masala-dosa","quantity":2}')] },
+      { output: [text("Added 2 masala dosas. Your bag is ₹180.")] },
+    );
+    const result = await ask(call, "2 masala dosa");
+    assert.equal(result.reply, "Added 2 masala dosas. Your bag is ₹180.");
+    assert.deepEqual(result.changes.map((c) => [c.item.menuItemId, c.qty]), [["dosa-masala-dosa", 2]]);
+    // OpenAI's input count includes cache reads and writes; the log counts them apart, as for Claude.
+    assert.deepEqual(result.usage, { input: 90, output: 60, cacheRead: 180, cacheWrite: 30 });
+
+    const [first, , last] = seen;
+    assert.match(String(first.instructions), /ordering assistant of Acme Food Court/);
+    assert.equal(first.store, false);
+    assert.deepEqual(first.reasoning, { effort: "low" });
+    assert.deepEqual(first.input, [{ role: "user", content: "2 masala dosa" }]);
+    const tools = first.tools as { type: string; name: string; strict: boolean; parameters: unknown }[];
+    assert.deepEqual(tools.map((tool) => tool.name), TOOLS.map((tool) => tool.name));
+    assert.ok(tools.every((tool) => tool.type === "function" && tool.strict === false));
+    assert.deepEqual(tools[0].parameters, TOOLS[0].input_schema);
+    for (const field of ["cache_control", "output_config", "betas", "system", "messages"]) assert.equal(field in first, false, field);
+
+    const input = last.input as unknown as Item[];
+    assert.deepEqual(input.map((item) => item.type ?? item.role), [
+      "user",
+      "reasoning",
+      "function_call",
+      "function_call_output",
+      "reasoning",
+      "function_call",
+      "function_call_output",
+    ]);
+    assert.equal(input[1].encrypted_content, "sealed-c1");
+    assert.equal(input[6].call_id, "c2");
+    assert.equal(JSON.parse(String(input[6].output)).now_in_bag, 2);
+  });
+
+  it("stops at refusals, never runs a call cut off mid-way, and reports failed responses", async () => {
+    const refused = scripted({ output: [said({ type: "refusal", refusal: "No." })] });
+    assert.match((await ask(refused.call)).reply, /can't help/);
+    const filtered = scripted({ output: [], status: "incomplete", incomplete_details: { reason: "content_filter" } });
+    assert.match((await ask(filtered.call)).reply, /can't help/);
+    const cut = scripted({
+      output: [reasoning("c"), functionCall("c", "add_to_bag", '{"item_id":"dosa-mas')],
+      status: "incomplete",
+      incomplete_details: { reason: "max_output_tokens" },
+    });
+    const r3 = await ask(cut.call);
+    assert.equal(r3.changes.length, 0);
+    assert.equal(r3.steps, 1);
+    const failed = scripted({ output: [], status: "failed", error: { code: "server_error", message: "boom" } });
+    await assert.rejects(ask(failed.call), /OpenAI response failed: boom/);
+  });
+
+  it("answers a call whose arguments are not JSON with a tool error", async () => {
+    const { call, seen } = scripted({ output: [reasoning("c"), functionCall("c", "add_to_bag", "{not json")] }, { output: [text("Which dish?")] });
+    const result = await ask(call);
+    assert.equal(result.reply, "Which dish?");
+    assert.equal(result.changes.length, 0);
+    const sent = (seen[1].input as unknown as Item[]).at(-1)!;
+    assert.equal(sent.type, "function_call_output");
+    assert.ok("error" in JSON.parse(String(sent.output)));
+  });
+
+  it("sends no reasoning settings with AI_EFFORT=off, for models without reasoning", () => {
+    const params = responseParams(assistantConfig({ AI_API_KEY: "k", AI_ROUTER: "openai", AI_MODEL: "gpt-4.1-mini", AI_EFFORT: "off" })!, "s", []);
+    assert.equal(params.model, "gpt-4.1-mini");
+    assert.equal("reasoning" in params, false);
+  });
+
+  it("works end to end through the OpenAI SDK against a stand-in server", async () => {
+    const stub = startAiStub(0);
+    const port = await stub.listening;
+    try {
+      const local = assistantConfig({ AI_API_KEY: "sk-local", AI_ROUTER: "openai", AI_BASE_URL: `http://127.0.0.1:${port}/v1` })!;
+      const result = await runAssistant({
+        chat: openaiChat(local, systemPrompt("Acme Food Court"), [{ role: "user", text: "2 masala dosa" }]),
+        catalogue,
+        bag: EMPTY_CART,
+      });
+      assert.equal(result.reply, "Added 2 Masala dosa from Dosa Counter. Your bag is now ₹180.");
+      assert.deepEqual(result.changes.map((c) => [c.item.menuItemId, c.qty]), [["dosa-masala-dosa", 2]]);
+      assert.equal(stub.requests.length, 3);
+      for (const { path, headers, body } of stub.requests) {
+        assert.equal(path, "/v1/responses");
+        assert.equal(headers.authorization, "Bearer sk-local");
+        assert.equal(body.store, false);
+      }
+    } finally {
+      stub.close();
+    }
   });
 });

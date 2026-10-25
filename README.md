@@ -138,23 +138,24 @@ It is off until `AI_API_KEY` is set. Restart the app after changing these settin
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `AI_API_KEY` | not set: the assistant is off | The key for Anthropic or for your router. |
-| `AI_ROUTER` | `anthropic` | Where requests go: `anthropic`, `openrouter`, `vercel`, `litellm`, `cloudflare`, `portkey` or `custom` (table below). |
-| `AI_MODEL` | `claude-opus-5-5` with `anthropic` and `cloudflare` | The model. Every other router needs it: use a name from that router's model list. |
+| `AI_API_KEY` | not set: the assistant is off | The key for Anthropic, OpenAI or your router. |
+| `AI_ROUTER` | `anthropic` | Where requests go: `anthropic`, `openai`, `openrouter`, `vercel`, `litellm`, `cloudflare`, `portkey` or `custom` (table below). |
+| `AI_MODEL` | `claude-opus-5-5` with `anthropic` and `cloudflare`, `gpt-6.1-sol` with `openai` | The model. Every other router needs it: use a name from that router's model list. |
 | `AI_BASE_URL` | the router's own address | Required for `litellm`, `cloudflare` and `custom`. |
 | `AI_HEADERS` | none | Extra request headers as JSON, e.g. `{"cf-aig-authorization": "Bearer ..."}`. |
-| `AI_EFFORT` | `low` | How hard a Claude model thinks: `low`, `medium`, `high`, `xhigh`, `max`, or `off` to leave it to the model. |
-| `AI_CLAUDE_FEATURES` | `on` for `anthropic`, `off` for routers | Prompt caching, effort and server-side refusal fallbacks. Set `on` for a gateway that passes requests to Anthropic unchanged. |
+| `AI_EFFORT` | `low` | How hard the model thinks (Claude, and OpenAI's reasoning models): `low`, `medium`, `high`, `xhigh`, `max`, or `off` to leave it to the model. Set `off` for OpenAI models without reasoning, such as `gpt-4.1-mini`. |
+| `AI_CLAUDE_FEATURES` | `on` for `anthropic`, `off` for routers | Prompt caching, effort and server-side refusal fallbacks. Set `on` for a gateway that passes requests to Anthropic unchanged. Never sent to OpenAI. |
 | `AI_DAILY_LIMIT` | `30` | Messages per person per rolling day. |
 | `AI_TOTAL_DAILY_LIMIT` | `2000` | Messages per rolling day across everyone, to cap the bill. |
 
 ### Routers
 
-Every option below takes the Anthropic Messages API format, so switching is a settings change. Choose one:
+`openai` uses OpenAI's own Responses API; every other option takes Anthropic's Messages API format. Switching is a settings change. Choose one:
 
 | `AI_ROUTER` | Use it for | Settings |
 | --- | --- | --- |
 | `anthropic` | Claude straight from Anthropic ([console.anthropic.com](https://console.anthropic.com)). | `AI_API_KEY=sk-ant-...` |
+| `openai` | OpenAI's GPT models with an API key from [platform.openai.com](https://platform.openai.com/api-keys). A ChatGPT Plus or Pro subscription does not include API use: the API is billed separately, from credit you add there. | `AI_API_KEY=sk-...`, and `AI_MODEL` for a model other than `gpt-6.1-sol` |
 | `openrouter` | One key for many providers ([openrouter.ai](https://openrouter.ai)). OpenRouter only guarantees this format with Anthropic's models. | `AI_API_KEY=<OpenRouter key>`, `AI_MODEL=<a Claude model from openrouter.ai/models>` |
 | `vercel` | Vercel AI Gateway. | `AI_API_KEY=<AI Gateway key>`, `AI_MODEL=<e.g. anthropic/claude-opus-5>` |
 | `litellm` | Your own LiteLLM proxy. It translates for OpenAI, Gemini, Bedrock, Vertex and others, so non-Claude models work too. | `AI_BASE_URL=http://<host>:4000`, `AI_API_KEY=<LiteLLM key>`, `AI_MODEL=<model_name from its config>` |
@@ -162,7 +163,7 @@ Every option below takes the Anthropic Messages API format, so switching is a se
 | `portkey` | Portkey gateway. | `AI_API_KEY=<Portkey key>`, `AI_MODEL=@<provider slug>/<model>` |
 | `custom` | Any other endpoint that takes the Messages API. | `AI_BASE_URL`, `AI_API_KEY` (sent as `x-api-key`), `AI_MODEL`, and `AI_HEADERS` if it needs more |
 
-Through a router, requests carry no Claude-only fields, since a router translating for another model may refuse them. Models other than Claude differ in how well they use the menu tools; try real orders before switching.
+Through a router, requests carry no Claude-only fields, since a router translating for another model may refuse them. Requests to OpenAI are sent with `store: false`, so they are not kept as stored responses in your OpenAI account. Models differ in how well they use the menu tools; try real orders before switching.
 
 ### Models
 
@@ -175,9 +176,17 @@ Claude models on `anthropic` (prices per million input / output tokens; check [t
 | Claude Haiku 5.5 | `claude-haiku-5-5` | $0.10 / $0.50 | The smallest and cheapest. |
 | Claude Fable 5.1 | `claude-fable-5-1` | $10 / $50 | The most capable, and the most expensive. |
 
+OpenAI models on `openai` (check [OpenAI's price list](https://developers.openai.com/api/docs/pricing)):
+
+| Model | `AI_MODEL` | Price | Notes |
+| --- | --- | --- | --- |
+| GPT-6.1 Sol | `gpt-6.1-sol` | $2 / $10 | The default with `openai`. |
+| GPT-6 Luna | `gpt-6-luna` | $0.10 / $0.50 | OpenAI's most efficient model, for focused, high-volume work. |
+| GPT-6 Astra | `gpt-6-astra` | $10 / $50 | OpenAI's most capable model. |
+
 A typical message takes two to four model calls. The server log prints one line per message with the tokens it used (`[assistant] ... in=… out=… cache_read=…`), so you can measure the cost on real orders before choosing.
 
-Messages, the bag and the menus go to the model provider (and the router, if any). Phone numbers and employee IDs are not sent. The browser suite runs the assistant against `e2e/ai-stub.mjs`, a stand-in that needs no key.
+Messages, the bag and the menus go to the model provider (and the router, if any). Phone numbers and employee IDs are not sent. The browser suite runs the assistant against `e2e/ai-stub.mjs`, a stand-in that needs no key; the unit tests also run the OpenAI path against it through the OpenAI SDK.
 
 ## Branding
 
