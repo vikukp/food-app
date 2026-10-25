@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  BAG_IDLE_MS,
   EMPTY_CART,
   addBlocker,
   addToCart,
   applyPrices,
   parseStoredCart,
   putStallLines,
+  readSavedBag,
+  savedBag,
   setLineQty,
   type CartState,
 } from "@/lib/cart";
@@ -119,6 +122,16 @@ describe("the bag", () => {
     for (const junk of [null, "", "{", "[]", "42", JSON.stringify({ stalls: "x" })]) {
       assert.deepEqual(parseStoredCart(junk), EMPTY_CART, String(junk));
     }
+  });
+
+  it("keeps a bag for half an hour after its last change, then starts empty", () => {
+    const now = Date.parse("2026-10-25T20:00:00+05:30");
+    const bag = addToCart(EMPTY_CART, momos, dish("m1"));
+    assert.equal(BAG_IDLE_MS, 30 * 60_000);
+    assert.deepEqual(readSavedBag(savedBag(bag, now - 29 * 60_000), now), { cart: bag, at: now - 29 * 60_000 });
+    assert.deepEqual(readSavedBag(savedBag(bag, now - 31 * 60_000), now), { cart: EMPTY_CART, at: now });
+    // Saved before bags kept a time, unreadable or missing: empty.
+    for (const raw of [JSON.stringify(bag), "{", null]) assert.deepEqual(readSavedBag(raw, now).cart, EMPTY_CART, String(raw));
   });
 });
 

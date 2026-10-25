@@ -1064,7 +1064,8 @@ await step("the AI assistant fills the bag from a chat, and paying stays with th
   const violations = await axeViolations(emp);
   check(violations.length === 0, violations.join("; "));
 
-  // The chat stays with the tab while it is fresh, and starts over half an hour after its last message.
+  // The chat and the bag stay while they are fresh, and start over half an
+  // hour after the last message or change.
   const reopen = async () => {
     await emp.keyboard.press("Escape");
     await emp.reload({ waitUntil: "networkidle" });
@@ -1073,18 +1074,24 @@ await step("the AI assistant fills the bag from a chat, and paying stays with th
   };
   await reopen();
   await chat.getByText(/Added 2 Masala dosa from Dosa Counter/).waitFor();
+  check((await pay.innerText()).replace(/\s+/g, " ").includes("2 items · ₹180"), "the bag did not survive a reload");
   await emp.evaluate(() => {
-    for (const key of Object.keys(sessionStorage).filter((k) => k.startsWith("fc-assistant-v2:"))) {
-      const saved = JSON.parse(sessionStorage.getItem(key));
-      sessionStorage.setItem(key, JSON.stringify({ ...saved, at: saved.at - 31 * 60_000 }));
-    }
+    const age = (storage, prefix) => {
+      for (const key of Object.keys(storage).filter((k) => k.startsWith(prefix))) {
+        const saved = JSON.parse(storage.getItem(key));
+        storage.setItem(key, JSON.stringify({ ...saved, at: saved.at - 31 * 60_000 }));
+      }
+    };
+    age(sessionStorage, "fc-assistant-v2:");
+    age(localStorage, "fc-cart-v1:");
   });
   await reopen();
   await chat.getByText("Try one of these, or type your own:").waitFor();
   check((await chat.getByText(/Added 2 Masala dosa/).count()) === 0, "a chat idle for 31 minutes came back");
+  check((await pay.count()) === 0, "a bag left for 31 minutes came back");
   await emp.keyboard.press("Escape");
   await clearBagAndChat(emp);
-  return `"2 masala dosa": ${aiStub.requests.length} model calls, 2 in the bag, chat passes axe; kept on reload, gone after 30 idle minutes`;
+  return `"2 masala dosa": ${aiStub.requests.length} model calls, 2 in the bag, chat passes axe; chat and bag kept on reload, gone after 30 idle minutes`;
 });
 
 await step("the assistant sees the queues: the shorter one first, and a quicker counter offered", async () => {

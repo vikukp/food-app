@@ -163,3 +163,25 @@ export function parseStoredCart(raw: string | null): CartState {
   }
   return { stalls };
 }
+
+// A bag left alone this long is from an earlier visit and starts empty: its
+// pickup times, and maybe its prices, have moved on.
+export const BAG_IDLE_MS = 30 * 60_000;
+
+// What is saved: the bag, and when it last changed (ms since epoch).
+export function savedBag(cart: CartState, at: number) {
+  return JSON.stringify({ ...cart, at });
+}
+
+// The saved bag and when it last changed. Empty when there is none, when it
+// can't be read, when it has been left alone too long, or when it was saved
+// before bags kept a time.
+export function readSavedBag(raw: string | null, now: number): { cart: CartState; at: number } {
+  let at: unknown = null;
+  try {
+    const parsed: unknown = JSON.parse(raw ?? "null");
+    if (isRecord(parsed)) at = parsed.at;
+  } catch {}
+  if (typeof at !== "number" || now - at > BAG_IDLE_MS) return { cart: EMPTY_CART, at: now };
+  return { cart: parseStoredCart(raw), at };
+}
