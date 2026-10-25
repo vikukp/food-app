@@ -130,6 +130,55 @@ Employees whose mobile number is listed in `ADMIN_PHONES` (comma-separated, e.g.
 
 Stall hours are campus time (IST). Most stalls serve lunch through the evening, a few (Idli & Filter Coffee, Sandwich & Wrap Lab, Maggi & Momos) run 24x7, and the biryani / meals counters are lunch-only. Pickup slots are 15-minute windows from about 10 minutes out until the stall closes, so the demo works at any hour. Hours may cross midnight (e.g. `18:00`–`02:00`): the stall is open on both sides of midnight and takes slots up to closing.
 
+## AI ordering assistant
+
+On the stalls pages, people can tap **Ask AI** and say what they want in their own words: "2 masala dosas and a filter coffee", "something veg under ₹150 that's quick", in English, Hindi or another language. The assistant searches the menus, adds dishes to their bag and changes quantities, with the same rules as the buttons (open stalls only, up to 4 stalls, 15 dishes and 30 items per stall). It cannot pay or place an order: the person checks the bag, picks pickup times and pays as usual.
+
+It is off until `AI_API_KEY` is set. Restart the app after changing these settings.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `AI_API_KEY` | not set: the assistant is off | The key for Anthropic or for your router. |
+| `AI_ROUTER` | `anthropic` | Where requests go: `anthropic`, `openrouter`, `vercel`, `litellm`, `cloudflare`, `portkey` or `custom` (table below). |
+| `AI_MODEL` | `claude-opus-5-5` with `anthropic` and `cloudflare` | The model. Every other router needs it: use a name from that router's model list. |
+| `AI_BASE_URL` | the router's own address | Required for `litellm`, `cloudflare` and `custom`. |
+| `AI_HEADERS` | none | Extra request headers as JSON, e.g. `{"cf-aig-authorization": "Bearer ..."}`. |
+| `AI_EFFORT` | `low` | How hard a Claude model thinks: `low`, `medium`, `high`, `xhigh`, `max`, or `off` to leave it to the model. |
+| `AI_CLAUDE_FEATURES` | `on` for `anthropic`, `off` for routers | Prompt caching, effort and server-side refusal fallbacks. Set `on` for a gateway that passes requests to Anthropic unchanged. |
+| `AI_DAILY_LIMIT` | `30` | Messages per person per rolling day. |
+| `AI_TOTAL_DAILY_LIMIT` | `2000` | Messages per rolling day across everyone, to cap the bill. |
+
+### Routers
+
+Every option below takes the Anthropic Messages API format, so switching is a settings change. Choose one:
+
+| `AI_ROUTER` | Use it for | Settings |
+| --- | --- | --- |
+| `anthropic` | Claude straight from Anthropic ([console.anthropic.com](https://console.anthropic.com)). | `AI_API_KEY=sk-ant-...` |
+| `openrouter` | One key for many providers ([openrouter.ai](https://openrouter.ai)). OpenRouter only guarantees this format with Anthropic's models. | `AI_API_KEY=<OpenRouter key>`, `AI_MODEL=<a Claude model from openrouter.ai/models>` |
+| `vercel` | Vercel AI Gateway. | `AI_API_KEY=<AI Gateway key>`, `AI_MODEL=<e.g. anthropic/claude-opus-5>` |
+| `litellm` | Your own LiteLLM proxy. It translates for OpenAI, Gemini, Bedrock, Vertex and others, so non-Claude models work too. | `AI_BASE_URL=http://<host>:4000`, `AI_API_KEY=<LiteLLM key>`, `AI_MODEL=<model_name from its config>` |
+| `cloudflare` | Cloudflare AI Gateway in front of Anthropic, for logs, caching and rate limits. | `AI_BASE_URL=https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic`, `AI_API_KEY=sk-ant-...`, `AI_CLAUDE_FEATURES=on`; for an authenticated gateway also `AI_HEADERS={"cf-aig-authorization": "Bearer <token>"}` |
+| `portkey` | Portkey gateway. | `AI_API_KEY=<Portkey key>`, `AI_MODEL=@<provider slug>/<model>` |
+| `custom` | Any other endpoint that takes the Messages API. | `AI_BASE_URL`, `AI_API_KEY` (sent as `x-api-key`), `AI_MODEL`, and `AI_HEADERS` if it needs more |
+
+Through a router, requests carry no Claude-only fields, since a router translating for another model may refuse them. Models other than Claude differ in how well they use the menu tools; try real orders before switching.
+
+### Models
+
+Claude models on `anthropic` (prices per million input / output tokens; check [the current price list](https://platform.claude.com/docs/en/about-claude/pricing)):
+
+| Model | `AI_MODEL` | Price | Notes |
+| --- | --- | --- | --- |
+| Claude Opus 5.5 | `claude-opus-5-5` | $4 / $20 | The default. |
+| Claude Sonnet 5.5 | `claude-sonnet-5-5` | $2 / $10 | |
+| Claude Haiku 5.5 | `claude-haiku-5-5` | $0.10 / $0.50 | The smallest and cheapest. |
+| Claude Fable 5.1 | `claude-fable-5-1` | $10 / $50 | The most capable, and the most expensive. |
+
+A typical message takes two to four model calls. The server log prints one line per message with the tokens it used (`[assistant] ... in=… out=… cache_read=…`), so you can measure the cost on real orders before choosing.
+
+Messages, the bag and the menus go to the model provider (and the router, if any). Phone numbers and employee IDs are not sent. The browser suite runs the assistant against `e2e/ai-stub.mjs`, a stand-in that needs no key.
+
 ## Branding
 
 Each company runs its own copy, named with these settings in the environment, `.env.production` or `docker-compose.yml`. They are read while the app runs, so a restart applies them; no rebuild.
@@ -202,7 +251,7 @@ Rate limits and the code-request queue are kept in process memory, so run one in
 ```bash
 npm run lint
 npm run typecheck
-npm test            # unit tests (node:test): hours and pickup slots, pricing, the bag, checkout input, tokens, PINs, phones, QR, client address
+npm test            # unit tests (node:test): hours and pickup slots, pricing, the bag, checkout input, tokens, PINs, phones, QR, client address, branding, the AI assistant
 ```
 
 GitHub Actions (`.github/workflows/ci.yml`) runs all of these plus a production build and the browser suite on every pull request and push to `main`.
@@ -213,7 +262,7 @@ With the app running in demo mode (`DEMO_MODE=1`, then `npm run build && npm sta
 npm run test:e2e
 ```
 
-It uses your installed Google Chrome (set `CHROME_PATH` for another Chromium binary, `BASE_URL` for another server, `SCREENSHOT_DIR` to keep screenshots). It covers registration, code and PIN sign-in, lockout and unlock, resend cooldown and forgot PIN; places an order and takes it through the counter queue to collected (found by token); pays for a bag from two stalls and checks each counter gets only its part; checks that a stale second tablet cannot skip a step, that changing the counter PIN signs out other tablets, that employees and stalls can cancel; and runs an axe accessibility audit (WCAG 2.1 AA) over every page. Each run registers new random numbers and never touches the demo employee. The suite takes about 75 seconds because it waits out the 30-second resend cooldown. Running it more than once in 15 minutes from one machine trips the PIN sign-in rate limit; restart the server to reset it.
+It uses your installed Google Chrome (set `CHROME_PATH` for another Chromium binary, `BASE_URL` for another server, `SCREENSHOT_DIR` to keep screenshots). It covers registration, code and PIN sign-in, lockout and unlock, resend cooldown and forgot PIN; places an order and takes it through the counter queue to collected (found by token); pays for a bag from two stalls and checks each counter gets only its part; checks that a stale second tablet cannot skip a step, that changing the counter PIN signs out other tablets, that employees and stalls can cancel; has the AI assistant fill a bag against a stand-in model when `AI_STUB_PORT` is set (as in CI, with the `AI_*` settings in `ci.yml`); and runs an axe accessibility audit (WCAG 2.1 AA) over every page. Each run registers new random numbers and never touches the demo employee. The suite takes about 75 seconds because it waits out the 30-second resend cooldown. Running it more than once in 15 minutes from one machine trips the PIN sign-in rate limit; restart the server to reset it.
 
 ## Stack
 

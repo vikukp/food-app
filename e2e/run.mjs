@@ -7,11 +7,14 @@ import { randomInt } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { chromium } from "playwright-core";
+import { startAiStub } from "./ai-stub.mjs";
 
 const BASE = (process.env.BASE_URL ?? "http://127.0.0.1:43123").replace(/\/+$/, "");
 const VENDOR_PIN = process.env.DEMO_VENDOR_PIN ?? "1234";
 const SHOTS = process.env.SCREENSHOT_DIR;
 const RESEND_WAIT_MS = 31_000;
+// With AI_STUB_PORT set (and the app's AI_* settings pointing at it), the assistant is tested against a stand-in model.
+const aiStub = process.env.AI_STUB_PORT ? startAiStub(Number(process.env.AI_STUB_PORT)) : null;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 
 const results = [];
@@ -1017,6 +1020,38 @@ async function axeViolations(page) {
   return result.violations.map((v) => `${new URL(page.url()).pathname}: ${v.id} (${v.nodes.length})`);
 }
 
+await step("the AI assistant fills the bag from a chat, and paying stays with the person", async () => {
+  if (!aiStub) return "skipped: AI_STUB_PORT is not set";
+  const clearBagAndChat = () =>
+    emp.evaluate(() => {
+      for (const key of Object.keys(localStorage)) if (key.startsWith("fc-cart")) localStorage.removeItem(key);
+      for (const key of Object.keys(sessionStorage)) if (key.startsWith("fc-assistant")) sessionStorage.removeItem(key);
+    });
+  await emp.goto(`${BASE}/stalls`);
+  await clearBagAndChat();
+  await emp.goto(`${BASE}/stalls/dosa`, { waitUntil: "networkidle" });
+  await emp.getByRole("button", { name: "Ask AI" }).click();
+  const chat = emp.getByRole("dialog", { name: "Order with AI" });
+  await chat.waitFor();
+  const box = chat.getByLabel("Message the assistant");
+  await box.fill("2 masala dosa");
+  await box.press("Enter");
+  await chat.getByText(/Added 2 Masala dosa from Dosa Counter\. Your bag is now ₹180\./).waitFor({ timeout: 15000 });
+  const pay = chat.locator("a[href='/checkout']");
+  check((await pay.innerText()).replace(/\s+/g, " ").includes("2 items · ₹180"), "the bag does not hold the 2 dosas");
+  const [first] = aiStub.requests;
+  check(first?.headers["x-api-key"] === process.env.AI_API_KEY && !first.headers.authorization, "the key was not sent as x-api-key alone");
+  check(first.body.system.includes("ordering assistant of Campus Food Court"), "the brand name is not in the instructions");
+  const tools = first.body.tools.map((tool) => tool.name);
+  check(tools.includes("add_to_bag") && !tools.some((name) => /pay|checkout|order/.test(name)), `tools: ${tools.join(", ")}`);
+  check(!("betas" in first.body) && !("cache_control" in first.body), "Claude-only fields went to a router");
+  const violations = await axeViolations(emp);
+  check(violations.length === 0, violations.join("; "));
+  await emp.keyboard.press("Escape");
+  await clearBagAndChat();
+  return `"2 masala dosa": ${aiStub.requests.length} model calls, 2 in the bag, chat passes axe`;
+});
+
 await step("pages pass an automated accessibility audit (axe, WCAG 2.1 AA)", async () => {
   const found = [];
   let pages = 0;
@@ -1060,6 +1095,7 @@ await step("no console or page errors", async () => {
   check(pageErrors.length === 0, pageErrors.slice(0, 3).join(" || "));
 });
 
+aiStub?.close();
 await browser.close();
 const passed = results.filter(Boolean).length;
 console.log(`\n${passed}/${results.length} checks passed`);
