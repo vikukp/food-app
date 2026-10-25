@@ -7,6 +7,7 @@ import { SiteHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { VegDot } from "@/components/veg-dot";
+import { usualOrder } from "@/lib/assistant/catalogue";
 import { assistantConfig } from "@/lib/assistant/config";
 import { hoursLabel, isStallOpen, opensIn, opensLaterToday, waitCopy } from "@/lib/hours";
 import { ratingCopy, stallRatings } from "@/lib/ratings";
@@ -41,6 +42,8 @@ export default async function StallPage({
   const open = !stall.paused && isStallOpen(stall.openTime, stall.closeTime);
   const active = (await activeOrderCounts([stall.id])).get(stall.id) ?? 0;
   const rating = ratingCopy((await stallRatings([stall.id])).get(stall.id));
+  const assistant = session && assistantConfig();
+  const habits = assistant ? await usualOrder(session.employeeId) : null;
 
   return (
     <div className="flex min-h-full flex-col">
@@ -94,7 +97,7 @@ export default async function StallPage({
         </div>
       </main>
       <CartBar />
-      {session && assistantConfig() ? <Assistant owner={session.uid} /> : null}
+      {assistant ? <Assistant owner={session.uid} usual={habits?.usual} ordered={habits?.ordered} /> : null}
     </div>
   );
 }

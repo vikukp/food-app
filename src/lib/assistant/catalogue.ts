@@ -1,3 +1,4 @@
+import { HABIT_DAYS, HABIT_ORDERS, rankFavorites, usualText, type Favorite } from "@/lib/assistant/habits";
 import { allergenLabels, hasEgg } from "@/lib/dietary";
 import { hoursLabel, isStallOpen, opensLaterToday, waitCopy, waitMinutes } from "@/lib/hours";
 import { effectivePrice } from "@/lib/pricing";
@@ -87,4 +88,39 @@ export async function loadCatalogue(now = new Date()): Promise<Catalogue> {
       };
     }),
   };
+}
+
+// What this person orders most (habits.ts), from their own orders of the last
+// weeks; cancelled ones don't count.
+export async function loadFavorites(employeeId: string, now = new Date()): Promise<Favorite[]> {
+  const orders = await prisma.order.findMany({
+    where: {
+      employeeId,
+      status: { not: "CANCELLED" },
+      createdAt: { gte: new Date(now.getTime() - HABIT_DAYS * 24 * 60 * 60_000) },
+    },
+    select: { createdAt: true, items: { select: { menuItemId: true, qty: true } } },
+    orderBy: { createdAt: "desc" },
+    take: 300,
+  });
+  return rankFavorites(orders, now);
+}
+
+// For the chat's first suggestions: their usual at this time of day, if they
+// have one that can be ordered now, and whether they have ordered at all.
+export async function usualOrder(employeeId: string, now = new Date()) {
+  const favorites = await loadFavorites(employeeId, now);
+  const habits = favorites.filter((favorite) => favorite.aroundNow >= HABIT_ORDERS).map((favorite) => favorite.menuItemId);
+  const items = habits.length
+    ? await prisma.menuItem.findMany({
+        where: { id: { in: habits }, archived: false, available: true },
+        select: { id: true, name: true, stall: { select: { openTime: true, closeTime: true, paused: true } } },
+      })
+    : [];
+  const orderable = new Map(
+    items
+      .filter((item) => !item.stall.paused && isStallOpen(item.stall.openTime, item.stall.closeTime, now))
+      .map((item) => [item.id, item.name]),
+  );
+  return { usual: usualText(favorites, orderable), ordered: favorites.length > 0 };
 }
