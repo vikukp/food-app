@@ -1025,10 +1025,10 @@ async function axeViolations(page) {
   return result.violations.map((v) => `${new URL(page.url()).pathname}: ${v.id} (${v.nodes.length})`);
 }
 
-const clearBagAndChat = (page) =>
+// The chat lives in the page's memory, so the next page load starts it over.
+const clearBag = (page) =>
   page.evaluate(() => {
     for (const key of Object.keys(localStorage)) if (key.startsWith("fc-cart")) localStorage.removeItem(key);
-    for (const key of Object.keys(sessionStorage)) if (key.startsWith("fc-assistant")) sessionStorage.removeItem(key);
   });
 
 // npm run demo:queue: fake orders waiting at a counter, in the database the
@@ -1042,7 +1042,7 @@ const fakeQueue = (...args) =>
 await step("the AI assistant fills the bag from a chat, and paying stays with the person", async () => {
   if (!aiStub) return "skipped: AI_STUB_PORT is not set";
   await emp.goto(`${BASE}/stalls`);
-  await clearBagAndChat(emp);
+  await clearBag(emp);
   await emp.goto(`${BASE}/stalls/dosa`, { waitUntil: "networkidle" });
   await emp.getByRole("button", { name: "Ask AI" }).click();
   const chat = emp.getByRole("dialog", { name: "Order with AI" });
@@ -1064,34 +1064,37 @@ await step("the AI assistant fills the bag from a chat, and paying stays with th
   const violations = await axeViolations(emp);
   check(violations.length === 0, violations.join("; "));
 
-  // The chat and the bag stay while they are fresh, and start over half an
-  // hour after the last message or change.
-  const reopen = async () => {
-    await emp.keyboard.press("Escape");
-    await emp.reload({ waitUntil: "networkidle" });
+  // The chat lasts while the app is open: moving between pages keeps it, a
+  // reload starts a new one. The bag survives a reload until it has been
+  // left alone for half an hour.
+  const openChat = async () => {
     await emp.getByRole("button", { name: "Ask AI" }).click();
     await chat.waitFor();
   };
-  await reopen();
+  await emp.keyboard.press("Escape");
+  await emp.locator("main a[href='/stalls']").first().click();
+  await emp.waitForURL(`${BASE}/stalls`);
+  await openChat();
   await chat.getByText(/Added 2 Masala dosa from Dosa Counter/).waitFor();
-  check((await pay.innerText()).replace(/\s+/g, " ").includes("2 items · ₹180"), "the bag did not survive a reload");
-  await emp.evaluate(() => {
-    const age = (storage, prefix) => {
-      for (const key of Object.keys(storage).filter((k) => k.startsWith(prefix))) {
-        const saved = JSON.parse(storage.getItem(key));
-        storage.setItem(key, JSON.stringify({ ...saved, at: saved.at - 31 * 60_000 }));
-      }
-    };
-    age(sessionStorage, "fc-assistant-v2:");
-    age(localStorage, "fc-cart-v1:");
-  });
-  await reopen();
+  await emp.keyboard.press("Escape");
+  await emp.reload({ waitUntil: "networkidle" });
+  await openChat();
   await chat.getByText("Try one of these, or type your own:").waitFor();
-  check((await chat.getByText(/Added 2 Masala dosa/).count()) === 0, "a chat idle for 31 minutes came back");
+  check((await chat.getByText(/Added 2 Masala dosa/).count()) === 0, "the chat came back after a reload");
+  check((await pay.innerText()).replace(/\s+/g, " ").includes("2 items · ₹180"), "the bag did not survive a reload");
+  await emp.keyboard.press("Escape");
+  await emp.evaluate(() => {
+    for (const key of Object.keys(localStorage).filter((k) => k.startsWith("fc-cart-v1:"))) {
+      const saved = JSON.parse(localStorage.getItem(key));
+      localStorage.setItem(key, JSON.stringify({ ...saved, at: saved.at - 31 * 60_000 }));
+    }
+  });
+  await emp.reload({ waitUntil: "networkidle" });
+  await openChat();
   check((await pay.count()) === 0, "a bag left for 31 minutes came back");
   await emp.keyboard.press("Escape");
-  await clearBagAndChat(emp);
-  return `"2 masala dosa": ${aiStub.requests.length} model calls, 2 in the bag, chat passes axe; chat and bag kept on reload, gone after 30 idle minutes`;
+  await clearBag(emp);
+  return `"2 masala dosa": ${aiStub.requests.length} model calls, 2 in the bag, chat passes axe; chat kept across pages, new on reload; bag kept on reload, gone after 30 idle minutes`;
 });
 
 await step("the assistant sees the queues: the shorter one first, and a quicker counter offered", async () => {
@@ -1100,7 +1103,7 @@ await step("the assistant sees the queues: the shorter one first, and a quicker 
   fakeQueue("sandwich=12");
   try {
     await emp.goto(`${BASE}/stalls`);
-    await clearBagAndChat(emp);
+    await clearBag(emp);
     await emp.goto(`${BASE}/stalls/sandwich`, { waitUntil: "networkidle" });
     await emp.getByText(/Busy · ~\d+ min/).first().waitFor({ timeout: 5000 });
     await emp.getByRole("button", { name: "Ask AI" }).click();
@@ -1121,7 +1124,7 @@ await step("the assistant sees the queues: the shorter one first, and a quicker 
   } finally {
     fakeQueue("--clear");
     await emp.keyboard.press("Escape");
-    await clearBagAndChat(emp);
+    await clearBag(emp);
   }
   return "12 fake orders at the sandwich counter: the quick filter coffee came first, and the cold coffee came with a quicker offer";
 });

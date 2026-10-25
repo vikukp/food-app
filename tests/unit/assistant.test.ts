@@ -4,7 +4,7 @@ import { startAiStub } from "../../e2e/ai-stub.mjs";
 import { MAX_STEPS, runAssistant, systemPrompt, toMessages } from "@/lib/assistant/agent";
 import { anthropicChat, requestParams, type CallModel } from "@/lib/assistant/anthropic";
 import type { Catalogue, CatalogueStall, Dish } from "@/lib/assistant/catalogue";
-import { CHAT_IDLE_MS, EMPTY_CHAT, isStale, readChat } from "@/lib/assistant/chat-store";
+import { CHAT_IDLE_MS, EMPTY_CHAT, isStale } from "@/lib/assistant/chat-store";
 import { agoText, rankFavorites, usualText, type Favorite } from "@/lib/assistant/habits";
 import { assistantConfig, type AssistantConfig } from "@/lib/assistant/config";
 import { openaiChat, responseParams, type CreateResponse } from "@/lib/assistant/openai";
@@ -572,35 +572,21 @@ describe("assistant over OpenAI", () => {
   });
 });
 
-describe("assistant chat in the tab", () => {
+describe("assistant chat", () => {
   const now = Date.parse("2026-10-25T13:00:00+05:30");
   const turns = [
-    { role: "user", text: "2 masala dosa" },
-    { role: "assistant", text: "Added 2 Masala dosa." },
+    { role: "user" as const, text: "2 masala dosa" },
+    { role: "assistant" as const, text: "Added 2 Masala dosa." },
   ];
-  const saved = (minutesAgo: number, list: unknown[] = turns) => JSON.stringify({ at: now - minutesAgo * 60_000, turns: list });
+  const chatFrom = (minutesAgo: number) => ({ at: now - minutesAgo * 60_000, turns });
 
-  it("comes back while it is fresh", () => {
-    assert.deepEqual(readChat(saved(5), now), { at: now - 5 * 60_000, turns });
-    assert.equal(isStale(readChat(saved(29), now), now), false);
-  });
-
-  it("starts over half an hour after the last message", () => {
+  it("stays fresh for half an hour after the last message, then starts over", () => {
     assert.equal(CHAT_IDLE_MS, 30 * 60_000);
-    assert.deepEqual(readChat(saved(31), now), EMPTY_CHAT);
-    assert.equal(isStale({ at: now - 31 * 60_000, turns: turns as never }, now), true);
+    assert.equal(isStale(chatFrom(5), now), false);
+    assert.equal(isStale(chatFrom(29), now), false);
+    assert.equal(isStale(chatFrom(31), now), true);
     // Nothing said yet is never stale.
     assert.equal(isStale(EMPTY_CHAT, now), false);
-  });
-
-  it("ignores the old format, junk and broken turns, and keeps the last 20", () => {
-    assert.deepEqual(readChat(JSON.stringify(turns), now), EMPTY_CHAT);
-    assert.deepEqual(readChat("{not json", now), EMPTY_CHAT);
-    assert.deepEqual(readChat(null, now), EMPTY_CHAT);
-    const many = Array.from({ length: 25 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", text: `m${i}` }));
-    const kept = readChat(saved(1, [{ role: "system", text: "x" }, ...many]), now).turns;
-    assert.equal(kept.length, 20);
-    assert.equal(kept[0].text, "m5");
   });
 });
 
