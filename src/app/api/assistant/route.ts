@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { runAssistant, systemPrompt, type ChatTurn } from "@/lib/assistant/agent";
 import { anthropicChat } from "@/lib/assistant/anthropic";
-import { loadCatalogue } from "@/lib/assistant/catalogue";
+import { loadCatalogue, loadFavorites } from "@/lib/assistant/catalogue";
 import { MAX_MESSAGE_LENGTH, assistantConfig } from "@/lib/assistant/config";
 import { openaiChat } from "@/lib/assistant/openai";
 import { brandNames } from "@/lib/brand";
@@ -88,9 +88,11 @@ export async function POST(request: Request) {
       try {
         const system = systemPrompt(brandNames().name);
         const chat = config.api === "openai" ? openaiChat(config, system, input.turns) : anthropicChat(config, system, input.turns);
+        const [catalogue, favorites] = await Promise.all([loadCatalogue(), loadFavorites(session.employeeId)]);
         const result = await runAssistant({
           chat,
-          catalogue: await loadCatalogue(),
+          catalogue,
+          favorites,
           bag: input.bag,
           onStatus: (text) => send({ type: "status", text }),
         });

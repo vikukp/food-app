@@ -15,57 +15,58 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { EMPTY_CHAT, KEPT_TURNS, isStale, readChat, type ChatTurn, type StoredChat } from "@/lib/assistant/chat-store";
 import { MAX_MESSAGE_LENGTH } from "@/lib/assistant/config";
 import type { BagChange } from "@/lib/assistant/tools";
 import { formatInr } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-type Turn = { role: "user" | "assistant"; text: string; failed?: boolean };
-
 const SUGGESTIONS = ["2 masala dosas and a filter coffee", "Something veg under ₹150 that's quick", "What's open right now?"];
-const KEPT_TURNS = 20;
 
-function isTurn(value: unknown): value is Turn {
-  if (!value || typeof value !== "object") return false;
-  const turn = value as Record<string, unknown>;
-  return (turn.role === "user" || turn.role === "assistant") && typeof turn.text === "string";
+// Someone who has ordered before starts from their own habits (habits.ts):
+// their usual at this time of day, or else what they usually like.
+function firstSuggestions(usual: string | null, ordered: boolean) {
+  if (usual) return [`My usual: ${usual}`, ...SUGGESTIONS.slice(1)];
+  if (ordered) return ["Suggest something I usually like", ...SUGGESTIONS.slice(1)];
+  return SUGGESTIONS;
 }
 
-// The chat lasts for this tab, so moving between stall pages keeps it; signing
-// out clears it with the rest of the site's storage.
-function readTurns(key: string): Turn[] {
-  if (typeof window === "undefined") return [];
+// Signing out clears the chat with the rest of the site's storage; it also
+// starts over after 30 idle minutes (chat-store.ts).
+function loadChat(key: string): StoredChat {
+  if (typeof window === "undefined") return EMPTY_CHAT;
   try {
-    const saved: unknown = JSON.parse(sessionStorage.getItem(key) ?? "[]");
-    return Array.isArray(saved) ? saved.filter(isTurn).slice(-KEPT_TURNS) : [];
+    return readChat(sessionStorage.getItem(key));
   } catch {
-    return [];
+    return EMPTY_CHAT;
   }
 }
 
 // Ask the AI assistant: it searches the menus and fills the bag, and the
 // person checks the bag and pays as usual (see /api/assistant).
-export function Assistant({ owner }: { owner: string }) {
+export function Assistant({ owner, usual = null, ordered = false }: { owner: string; usual?: string | null; ordered?: boolean }) {
   const { cart, count, total, hydrated, addItem, setQty } = useCart();
-  const key = `fc-assistant-v1:${owner}`;
+  // v1 kept a bare list of turns; v2 adds when the last one was said.
+  const key = `fc-assistant-v2:${owner}`;
   const [open, setOpen] = useState(false);
-  const [turns, setTurns] = useState<Turn[]>(() => readTurns(key));
+  const [chat, setChat] = useState<StoredChat>(() => loadChat(key));
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const log = useRef<HTMLDivElement>(null);
   const busy = status !== null;
+  const { turns } = chat;
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(key, JSON.stringify(turns.slice(-KEPT_TURNS)));
+      sessionStorage.setItem(key, JSON.stringify({ at: chat.at, turns: chat.turns.slice(-KEPT_TURNS) }));
     } catch {}
-  }, [key, turns]);
+  }, [key, chat]);
 
   useEffect(() => {
     log.current?.scrollTo({ top: log.current.scrollHeight });
   }, [turns, status, open]);
 
-  const say = (turn: Turn) => setTurns((current) => [...current, turn]);
+  const say = (turn: ChatTurn) => setChat((current) => ({ at: Date.now(), turns: [...current.turns, turn] }));
 
   // The server worked on a copy of the bag; make the same changes to the real one.
   function apply(changes: BagChange[]) {
@@ -80,8 +81,10 @@ export function Assistant({ owner }: { owner: string }) {
   async function send(text: string) {
     const message = text.trim().slice(0, MAX_MESSAGE_LENGTH);
     if (!message || busy) return;
-    const history = [...turns.filter((turn) => !turn.failed), { role: "user" as const, text: message }];
-    say({ role: "user", text: message });
+    // A chat left for half an hour starts over rather than going back to the model.
+    const earlier = isStale(chat) ? [] : turns;
+    const history = [...earlier.filter((turn) => !turn.failed), { role: "user" as const, text: message }];
+    setChat({ at: Date.now(), turns: [...earlier, { role: "user", text: message }] });
     setDraft("");
     setStatus("Thinking…");
     try {
@@ -130,7 +133,13 @@ export function Assistant({ owner }: { owner: string }) {
   }
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setChat((current) => (isStale(current) ? EMPTY_CHAT : current));
+        setOpen(next);
+      }}
+    >
       <SheetTrigger
         render={
           <Button
@@ -153,7 +162,7 @@ export function Assistant({ owner }: { owner: string }) {
           {turns.length === 0 ? (
             <div className="flex flex-col items-start gap-2">
               <p className="text-sm text-muted-foreground">Try one of these, or type your own:</p>
-              {SUGGESTIONS.map((suggestion) => (
+              {firstSuggestions(usual, ordered).map((suggestion) => (
                 <Button
                   key={suggestion}
                   variant="outline"

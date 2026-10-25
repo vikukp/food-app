@@ -2,6 +2,7 @@ import { Assistant } from "@/components/assistant";
 import { CartBar, CartButton } from "@/components/cart-sheet";
 import { SiteHeader } from "@/components/site-header";
 import { StallGrid } from "@/components/stall-grid";
+import { usualOrder } from "@/lib/assistant/catalogue";
 import { assistantConfig } from "@/lib/assistant/config";
 import { brandNames } from "@/lib/brand";
 import { isStallOpen, waitCopy } from "@/lib/hours";
@@ -39,6 +40,7 @@ export default async function StallsPage() {
     .sort((a, b) => Number(b.open) - Number(a.open) || a.name.localeCompare(b.name));
   const openCount = stalls.filter((stall) => stall.open).length;
   const assistant = session && assistantConfig();
+  const habits = assistant ? await usualOrder(session.employeeId) : null;
 
   return (
     <div className="flex min-h-full flex-col">
@@ -55,7 +57,7 @@ export default async function StallsPage() {
         </div>
       </main>
       <CartBar />
-      {assistant ? <Assistant owner={session.uid} /> : null}
+      {assistant ? <Assistant owner={session.uid} usual={habits?.usual} ordered={habits?.ordered} /> : null}
     </div>
   );
 }

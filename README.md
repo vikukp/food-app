@@ -136,6 +136,10 @@ On the stalls pages, people can tap **Ask AI** and say what they want in their o
 
 It knows each counter's live queue: the orders it still has to cook and about how long a new one waits, the same estimate the menus show. Suggestions give the wait, and among similar dishes the shorter queue comes first; "something quick" gets the quickest counters. When someone asks for a dish at a counter with a wait of 20 minutes or more, it adds what they asked for, says the wait, and offers the same kind of dish (same diet) at a counter at least 10 minutes quicker if there is one, such as the filter coffee at Idli & Filter Coffee for the one at a mobbed Dosa Counter. It never swaps a dish without asking.
 
+It also learns each person's habits from their own orders over the last 60 days: what they order most, in what quantity, and at what time of day. Someone who has ordered the same thing two or more times around this time of day gets **My usual: 2 Masala dosa and 1 Filter coffee** as the first suggestion when they open the chat at that time (if those dishes can be ordered now); anyone else who has ordered before gets **Suggest something I usually like**. Asked for "my usual" or for a suggestion without naming food, the assistant starts from their favourites that are open now, with the waits. Cancelled orders don't count.
+
+The chat stays with the browser tab, so moving between stall pages keeps it, and starts over half an hour after its last message.
+
 It is off until `AI_API_KEY` is set. Restart the app after changing these settings.
 
 | Setting | Default | What it does |
@@ -200,7 +204,18 @@ npm run demo:queue -- --clear             # take every fake order away
 
 The fake orders wait at the counter like real ones (the counter screen shows them as "Queue test 1", "Queue test 2", ...), spread over the next pickup slots, a third of each slot at most so real orders still fit. Then ask the assistant for "2 masala dosas and a filter coffee" or "something quick". It refuses to run outside demo mode, as it writes orders into the database.
 
-Messages, the bag and the menus go to the model provider (and the router, if any). Phone numbers and employee IDs are not sent. The browser suite runs the assistant against `e2e/ai-stub.mjs`, a stand-in that needs no key; the unit tests also run the OpenAI path against it through the OpenAI SDK.
+### Trying habits with a demo history
+
+To try **My usual** without a week of real orders, give the demo employee one (demo mode only):
+
+```bash
+npm run demo:habits             # a week of past orders: 08:30 dosa and coffee, 13:00 veg thali, 17:00 cold coffee and fries, 20:30 paneer roll
+npm run demo:habits -- --clear  # take them away
+```
+
+Sign in as the demo employee and open **Ask AI** within an hour and a half of one of those times to see their usual; at other times it offers what they usually like. Running it again replaces the earlier history.
+
+Messages, the bag and the menus go to the model provider (and the router, if any), and, when the assistant looks them up, the dishes the person orders most with how often. Phone numbers and employee IDs are not sent. The browser suite runs the assistant against `e2e/ai-stub.mjs`, a stand-in that needs no key; the unit tests also run the OpenAI path against it through the OpenAI SDK.
 
 ## Branding
 
@@ -285,7 +300,7 @@ With the app running in demo mode (`DEMO_MODE=1`, then `npm run build && npm sta
 npm run test:e2e
 ```
 
-It uses your installed Google Chrome (set `CHROME_PATH` for another Chromium binary, `BASE_URL` for another server, `SCREENSHOT_DIR` to keep screenshots). It covers registration, code and PIN sign-in, lockout and unlock, resend cooldown and forgot PIN; places an order and takes it through the counter queue to collected (found by token); pays for a bag from two stalls and checks each counter gets only its part; checks that a stale second tablet cannot skip a step, that changing the counter PIN signs out other tablets, that employees and stalls can cancel; has the AI assistant fill a bag against a stand-in model when `AI_STUB_PORT` is set (as in CI, with the `AI_*` settings in `ci.yml`), and with a fake queue at the sandwich counter checks that it picks the shorter queue and offers a quicker counter; and runs an axe accessibility audit (WCAG 2.1 AA) over every page. Each run registers new random numbers and never touches the demo employee. The suite takes about 75 seconds because it waits out the 30-second resend cooldown. Running it more than once in 15 minutes from one machine trips the PIN sign-in rate limit; restart the server to reset it.
+It uses your installed Google Chrome (set `CHROME_PATH` for another Chromium binary, `BASE_URL` for another server, `SCREENSHOT_DIR` to keep screenshots). It covers registration, code and PIN sign-in, lockout and unlock, resend cooldown and forgot PIN; places an order and takes it through the counter queue to collected (found by token); pays for a bag from two stalls and checks each counter gets only its part; checks that a stale second tablet cannot skip a step, that changing the counter PIN signs out other tablets, that employees and stalls can cancel; has the AI assistant fill a bag against a stand-in model when `AI_STUB_PORT` is set (as in CI, with the `AI_*` settings in `ci.yml`), checks that the chat survives a reload but starts over after 30 idle minutes and opens with a suggestion from the person's own orders, and with a fake queue at the sandwich counter checks that it picks the shorter queue and offers a quicker counter; and runs an axe accessibility audit (WCAG 2.1 AA) over every page. Each run registers new random numbers and never touches the demo employee. The suite takes about 75 seconds because it waits out the 30-second resend cooldown. Running it more than once in 15 minutes from one machine trips the PIN sign-in rate limit; restart the server to reset it.
 
 ## Stack
 

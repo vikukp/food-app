@@ -1047,6 +1047,8 @@ await step("the AI assistant fills the bag from a chat, and paying stays with th
   await emp.getByRole("button", { name: "Ask AI" }).click();
   const chat = emp.getByRole("dialog", { name: "Order with AI" });
   await chat.waitFor();
+  // This person has ordered before, so the first suggestion comes from their own habits.
+  await chat.getByRole("button", { name: /^(My usual: .+|Suggest something I usually like)$/ }).waitFor();
   const box = chat.getByLabel("Message the assistant");
   await box.fill("2 masala dosa");
   await box.press("Enter");
@@ -1061,9 +1063,28 @@ await step("the AI assistant fills the bag from a chat, and paying stays with th
   check(!("betas" in first.body) && !("cache_control" in first.body), "Claude-only fields went to a router");
   const violations = await axeViolations(emp);
   check(violations.length === 0, violations.join("; "));
+
+  // The chat stays with the tab while it is fresh, and starts over half an hour after its last message.
+  const reopen = async () => {
+    await emp.keyboard.press("Escape");
+    await emp.reload({ waitUntil: "networkidle" });
+    await emp.getByRole("button", { name: "Ask AI" }).click();
+    await chat.waitFor();
+  };
+  await reopen();
+  await chat.getByText(/Added 2 Masala dosa from Dosa Counter/).waitFor();
+  await emp.evaluate(() => {
+    for (const key of Object.keys(sessionStorage).filter((k) => k.startsWith("fc-assistant-v2:"))) {
+      const saved = JSON.parse(sessionStorage.getItem(key));
+      sessionStorage.setItem(key, JSON.stringify({ ...saved, at: saved.at - 31 * 60_000 }));
+    }
+  });
+  await reopen();
+  await chat.getByText("Try one of these, or type your own:").waitFor();
+  check((await chat.getByText(/Added 2 Masala dosa/).count()) === 0, "a chat idle for 31 minutes came back");
   await emp.keyboard.press("Escape");
   await clearBagAndChat(emp);
-  return `"2 masala dosa": ${aiStub.requests.length} model calls, 2 in the bag, chat passes axe`;
+  return `"2 masala dosa": ${aiStub.requests.length} model calls, 2 in the bag, chat passes axe; kept on reload, gone after 30 idle minutes`;
 });
 
 await step("the assistant sees the queues: the shorter one first, and a quicker counter offered", async () => {

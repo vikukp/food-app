@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { Catalogue, CatalogueStall, Dish } from "@/lib/assistant/catalogue";
+import { agoText, type Favorite } from "@/lib/assistant/habits";
 import { addBlocker, addToCart, cartCount, cartTotal, setLineQty, stallTotal, type CartLine, type CartState } from "@/lib/cart";
 import { MAX_ITEMS_PER_ORDER, MAX_QTY_PER_LINE } from "@/lib/validation";
 
@@ -10,7 +11,8 @@ import { MAX_ITEMS_PER_ORDER, MAX_QTY_PER_LINE } from "@/lib/validation";
 // One dish's new quantity in the bag (0: taken out).
 export type BagChange = { stall: { id: string; name: string }; item: Omit<CartLine, "qty">; qty: number };
 
-export type ToolContext = { catalogue: Catalogue; bag: CartState; changes: Map<string, BagChange> };
+// favorites: what this person orders most (habits.ts), when known.
+export type ToolContext = { catalogue: Catalogue; bag: CartState; changes: Map<string, BagChange>; favorites?: Favorite[] };
 
 // What the model reads back, and a few words for the person while it works.
 export type ToolOutcome = { status: string; content: string; isError?: boolean };
@@ -87,6 +89,12 @@ export const TOOLS: Anthropic.Tool[] = [
       required: ["item_id", "quantity"],
       additionalProperties: false,
     },
+  },
+  {
+    name: "my_favorites",
+    description:
+      "What this person orders most over the last 60 days, best first: how many times, how many of those around this time of day, their usual quantity and when they last had it, with today's price, whether the stall is open and its live queue. Call this when they ask for their usual or something they had before, or want a suggestion without naming food.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "view_bag",
@@ -402,12 +410,36 @@ function setQuantity(input: Input, ctx: ToolContext): ToolOutcome {
   });
 }
 
+function myFavorites(_: Input, ctx: ToolContext): ToolOutcome {
+  const favorites = (ctx.favorites ?? [])
+    .flatMap((favorite) => {
+      const hit = findDish(ctx.catalogue, favorite.menuItemId);
+      // Taken off the menus since.
+      if (!hit) return [];
+      return [
+        {
+          ...dishView(hit.dish, hit.stall, true),
+          times_ordered: favorite.orders,
+          times_around_now: favorite.aroundNow,
+          usual_quantity: favorite.usualQty,
+          last_ordered: agoText(favorite.daysAgo),
+        },
+      ];
+    })
+    .slice(0, 8);
+  return ok(
+    "Looking at what you usually have…",
+    favorites.length ? { favorites } : { favorites, note: "No orders from this person yet: suggest from the menus." },
+  );
+}
+
 const RUNNERS: Record<string, (input: Input, ctx: ToolContext) => ToolOutcome> = {
   search_menu: searchMenu,
   list_stalls: listStalls,
   get_stall_menu: stallMenu,
   add_to_bag: addDish,
   set_quantity: setQuantity,
+  my_favorites: myFavorites,
   view_bag: (_, ctx) => ok("Checking your bag…", bagSummary(ctx.bag)),
 };
 

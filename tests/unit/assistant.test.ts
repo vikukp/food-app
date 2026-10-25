@@ -4,6 +4,8 @@ import { startAiStub } from "../../e2e/ai-stub.mjs";
 import { MAX_STEPS, runAssistant, systemPrompt, toMessages } from "@/lib/assistant/agent";
 import { anthropicChat, requestParams, type CallModel } from "@/lib/assistant/anthropic";
 import type { Catalogue, CatalogueStall, Dish } from "@/lib/assistant/catalogue";
+import { CHAT_IDLE_MS, EMPTY_CHAT, isStale, readChat } from "@/lib/assistant/chat-store";
+import { agoText, rankFavorites, usualText, type Favorite } from "@/lib/assistant/habits";
 import { assistantConfig, type AssistantConfig } from "@/lib/assistant/config";
 import { openaiChat, responseParams, type CreateResponse } from "@/lib/assistant/openai";
 import { TOOLS, runTool, type ToolContext } from "@/lib/assistant/tools";
@@ -567,5 +569,147 @@ describe("assistant over OpenAI", () => {
     } finally {
       stub.close();
     }
+  });
+});
+
+describe("assistant chat in the tab", () => {
+  const now = Date.parse("2026-10-25T13:00:00+05:30");
+  const turns = [
+    { role: "user", text: "2 masala dosa" },
+    { role: "assistant", text: "Added 2 Masala dosa." },
+  ];
+  const saved = (minutesAgo: number, list: unknown[] = turns) => JSON.stringify({ at: now - minutesAgo * 60_000, turns: list });
+
+  it("comes back while it is fresh", () => {
+    assert.deepEqual(readChat(saved(5), now), { at: now - 5 * 60_000, turns });
+    assert.equal(isStale(readChat(saved(29), now), now), false);
+  });
+
+  it("starts over half an hour after the last message", () => {
+    assert.equal(CHAT_IDLE_MS, 30 * 60_000);
+    assert.deepEqual(readChat(saved(31), now), EMPTY_CHAT);
+    assert.equal(isStale({ at: now - 31 * 60_000, turns: turns as never }, now), true);
+    // Nothing said yet is never stale.
+    assert.equal(isStale(EMPTY_CHAT, now), false);
+  });
+
+  it("ignores the old format, junk and broken turns, and keeps the last 20", () => {
+    assert.deepEqual(readChat(JSON.stringify(turns), now), EMPTY_CHAT);
+    assert.deepEqual(readChat("{not json", now), EMPTY_CHAT);
+    assert.deepEqual(readChat(null, now), EMPTY_CHAT);
+    const many = Array.from({ length: 25 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", text: `m${i}` }));
+    const kept = readChat(saved(1, [{ role: "system", text: "x" }, ...many]), now).turns;
+    assert.equal(kept.length, 20);
+    assert.equal(kept[0].text, "m5");
+  });
+});
+
+describe("assistant and habits", () => {
+  const at = (when: string) => new Date(`${when}+05:30`);
+  const order = (when: string, ...items: [string, number][]) => ({
+    createdAt: at(when),
+    items: items.map(([menuItemId, qty]) => ({ menuItemId, qty })),
+  });
+  // Dosa and coffee every morning, a thali most lunchtimes, juice once.
+  const history = [
+    order("2026-10-24T08:30", ["dosa-masala-dosa", 2], ["dosa-filter-coffee", 1]),
+    order("2026-10-23T08:40", ["dosa-masala-dosa", 2], ["dosa-filter-coffee", 1]),
+    order("2026-10-22T08:20", ["dosa-masala-dosa", 1], ["dosa-masala-dosa", 1]),
+    order("2026-10-21T08:35", ["dosa-masala-dosa", 2]),
+    order("2026-10-24T12:45", ["punjab-veg-thali", 1]),
+    order("2026-10-20T13:30", ["punjab-veg-thali", 2]),
+    order("2026-10-18T13:10", ["punjab-veg-thali", 1]),
+    order("2026-10-10T16:00", ["juice-mango", 1]),
+  ];
+
+  it("rank what someone orders most, putting what they have around this time first", () => {
+    const lunch = rankFavorites(history, at("2026-10-25T13:00"));
+    assert.deepEqual(
+      lunch.map((f) => [f.menuItemId, f.orders, f.aroundNow, f.usualQty, f.daysAgo]),
+      [
+        ["punjab-veg-thali", 3, 3, 1, 1],
+        ["dosa-masala-dosa", 4, 0, 2, 1],
+        ["dosa-filter-coffee", 2, 0, 1, 1],
+        ["juice-mango", 1, 0, 1, 15],
+      ],
+    );
+    // In the morning the dosa leads; a dosa on two lines of one order is one order of 2.
+    const breakfast = rankFavorites(history, at("2026-10-25T08:00"));
+    assert.deepEqual(breakfast.slice(0, 2).map((f) => [f.menuItemId, f.aroundNow]), [
+      ["dosa-masala-dosa", 4],
+      ["dosa-filter-coffee", 2],
+    ]);
+  });
+
+  it("count late orders around midnight as the same time of day", () => {
+    const late = rankFavorites([order("2026-10-24T23:40", ["juice-mango", 1])], at("2026-10-26T00:30"));
+    assert.equal(late[0].aroundNow, 1);
+  });
+
+  it("word the usual from habits that can be ordered now", () => {
+    const favorite = (menuItemId: string, aroundNow: number, usualQty = 1): Favorite => ({
+      menuItemId,
+      orders: aroundNow + 1,
+      aroundNow,
+      usualQty,
+      daysAgo: 1,
+    });
+    const names = new Map([
+      ["a", "Masala dosa"],
+      ["b", "Filter coffee"],
+      ["c", "Medu vada"],
+      ["d", "Kesari bath"],
+    ]);
+    assert.equal(usualText([favorite("a", 3, 2), favorite("b", 2)], names), "2 Masala dosa and 1 Filter coffee");
+    assert.equal(
+      usualText([favorite("a", 4, 2), favorite("b", 3), favorite("c", 2), favorite("d", 2)], names),
+      "2 Masala dosa, 1 Filter coffee and 1 Medu vada",
+    );
+    // Once around this time is no habit, and a dish that can't be ordered now is left out.
+    assert.equal(usualText([favorite("a", 1), favorite("x", 5)], names), null);
+    assert.deepEqual([agoText(0), agoText(1), agoText(6)], ["today", "yesterday", "6 days ago"]);
+  });
+
+  const favorites: Favorite[] = [
+    { menuItemId: "dosa-masala-dosa", orders: 5, aroundNow: 4, usualQty: 2, daysAgo: 1 },
+    { menuItemId: "gone-dish", orders: 3, aroundNow: 0, usualQty: 1, daysAgo: 9 },
+    { menuItemId: "biryani-chicken", orders: 2, aroundNow: 0, usualQty: 1, daysAgo: 3 },
+  ];
+
+  it("list favourites with today's menu, stall and queue, leaving out dishes gone from the menus", () => {
+    const listed = json(runTool("my_favorites", {}, { ...ctx(), favorites }).content).favorites;
+    assert.deepEqual(
+      listed.map((f: Record<string, unknown>) => [f.dish, f.times_ordered, f.times_around_now, f.usual_quantity, f.last_ordered]),
+      [
+        ["Masala dosa", 5, 4, 2, "yesterday"],
+        ["Chicken biryani", 2, 0, 1, "3 days ago"],
+      ],
+    );
+    assert.equal(listed[0].wait_minutes, 10);
+    assert.match(listed[1].stall_status, /closed, opens at 12:00/);
+    assert.match(json(runTool("my_favorites", {}, ctx()).content).note, /No orders/);
+  });
+
+  it("reach the model through the chat", async () => {
+    const config = assistantConfig({ AI_API_KEY: "k", AI_ROUTER: "custom", AI_BASE_URL: "http://127.0.0.1:1", AI_MODEL: "m" })!;
+    const seen: Parameters<CallModel>[0][] = [];
+    const replies = [
+      { stop_reason: "tool_use", content: [{ type: "tool_use", id: "f1", name: "my_favorites", input: {} }] },
+      { stop_reason: "end_turn", content: [{ type: "text", text: "Your usual is 2 masala dosas." }] },
+    ];
+    const call: CallModel = async (params) => {
+      seen.push(structuredClone(params));
+      return { ...replies[seen.length - 1], usage: { input_tokens: 1, output_tokens: 1 } } as unknown as Awaited<ReturnType<CallModel>>;
+    };
+    const result = await runAssistant({
+      chat: anthropicChat(config, systemPrompt("B"), [{ role: "user", text: "my usual" }], call),
+      catalogue,
+      favorites,
+      bag: EMPTY_CART,
+    });
+    assert.equal(result.reply, "Your usual is 2 masala dosas.");
+    const [sent] = seen[1].messages.at(-1)!.content as unknown as { content: string }[];
+    assert.equal(JSON.parse(sent.content).favorites[0].dish, "Masala dosa");
+    assert.match(systemPrompt("B"), /my_favorites/);
   });
 });
