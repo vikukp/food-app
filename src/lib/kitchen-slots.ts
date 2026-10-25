@@ -59,6 +59,14 @@ export function slotGroups(orders: VendorOrder[], now: number): SlotGroup[] {
   return [...groups.values()].sort((a, b) => a.dueAt - b.dueAt);
 }
 
+// Whether an order holds the kitchen up now, for the live wait customers see:
+// it is being prepared, or due to start. A pre-order further out does not,
+// until then; one without a stored pickup time does.
+export function inQueueNow(order: { status: string; pickupAt: Date | null }, now: number) {
+  if (order.status === "PREPARING") return true;
+  return order.status === "PLACED" && (!order.pickupAt || order.pickupAt.getTime() - START_BEFORE_PICKUP_MS <= now);
+}
+
 // Orders not started yet whose start time has come.
 export function dueToStart(orders: VendorOrder[], now: number) {
   return orders.filter((order) => order.status === "PLACED" && dueAt(order, now) - START_BEFORE_PICKUP_MS <= now);

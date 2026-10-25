@@ -7,7 +7,7 @@
 //   npm run demo:queue -- --clear            take every fake order away
 import { randomInt } from "node:crypto";
 import { loadEnvConfig } from "@next/env";
-import { isStallOpen, serviceDay, waitCopy } from "../src/lib/hours";
+import { campusClockTime, isStallOpen, serviceDay, waitCopy } from "../src/lib/hours";
 import { demoMode } from "../src/lib/mode";
 import { randomToken } from "../src/lib/orders";
 import { effectivePrice } from "../src/lib/pricing";
@@ -15,6 +15,7 @@ import { effectivePrice } from "../src/lib/pricing";
 // Fake orders carry this in place of an employee ID.
 const FAKE = "FAKE-QUEUE";
 const MAX_PER_STALL = 60;
+const FIVE_MINUTES = 5 * 60_000;
 
 async function main() {
   // Read the same .env files as the app before the database client starts.
@@ -25,7 +26,7 @@ async function main() {
     return;
   }
   const { prisma } = await import("../src/lib/prisma");
-  const { activeOrderCounts, slotsWithRoom } = await import("../src/lib/stall-load");
+  const { activeOrderCounts } = await import("../src/lib/stall-load");
   const args = process.argv.slice(2);
 
   if (args.includes("--clear")) {
@@ -57,43 +58,38 @@ async function main() {
       continue;
     }
 
-    // Spread the orders over the stall's pickup slots, a third of each slot at
-    // most, so real orders still find room.
-    const perSlot = Math.max(1, Math.floor(stall.slotCapacity / 3));
-    const slots = (await slotsWithRoom([stall])).get(stall.id) ?? [];
+    // Due over the next 20 minutes, on 5-minute marks: the queue the kitchen
+    // has now. Off the pickup slots' times, they take no place from real orders.
     const tokenDay = serviceDay(stall.openTime, stall.closeTime);
-    let added = 0;
-    for (const slot of slots) {
-      for (let i = 0; i < Math.min(perSlot, slot.left ?? 0) && added < count; i += 1) {
-        const lines = Array.from({ length: randomInt(1, 3) }, () => stall.items[randomInt(stall.items.length)])
-          .filter((item, index, all) => all.indexOf(item) === index)
-          .map((item) => ({ menuItemId: item.id, name: item.name, qty: randomInt(1, 3), priceInr: effectivePrice(item), veg: item.veg }));
-        let token = randomToken();
-        while (await prisma.order.count({ where: { stallId: stall.id, tokenDay, token } })) token = randomToken();
-        // The first third are already on the stove.
-        const preparing = added < count / 3;
-        await prisma.order.create({
-          data: {
-            token,
-            tokenDay,
-            employeeId: FAKE,
-            employeeName: `Queue test ${added + 1}`,
-            stallId: stall.id,
-            status: preparing ? "PREPARING" : "PLACED",
-            preparingAt: preparing ? new Date() : null,
-            pickupSlot: slot.value,
-            pickupAt: new Date(slot.at),
-            paymentMethod: "UPI",
-            paymentRef: `${FAKE}-${tokenDay}-${token}`,
-            totalInr: lines.reduce((sum, line) => sum + line.priceInr * line.qty, 0),
-            items: { create: lines },
-          },
-        });
-        added += 1;
-      }
-      if (added === count) break;
+    const firstMark = Math.ceil(Date.now() / FIVE_MINUTES) * FIVE_MINUTES;
+    for (let added = 0; added < count; added += 1) {
+      const lines = Array.from({ length: randomInt(1, 3) }, () => stall.items[randomInt(stall.items.length)])
+        .filter((item, index, all) => all.indexOf(item) === index)
+        .map((item) => ({ menuItemId: item.id, name: item.name, qty: randomInt(1, 3), priceInr: effectivePrice(item), veg: item.veg }));
+      let token = randomToken();
+      while (await prisma.order.count({ where: { stallId: stall.id, tokenDay, token } })) token = randomToken();
+      const pickupAt = new Date(firstMark + (added % 4) * FIVE_MINUTES);
+      // The first third are already on the stove.
+      const preparing = added < count / 3;
+      await prisma.order.create({
+        data: {
+          token,
+          tokenDay,
+          employeeId: FAKE,
+          employeeName: `Queue test ${added + 1}`,
+          stallId: stall.id,
+          status: preparing ? "PREPARING" : "PLACED",
+          preparingAt: preparing ? new Date() : null,
+          pickupSlot: campusClockTime(pickupAt),
+          pickupAt,
+          paymentMethod: "UPI",
+          paymentRef: `${FAKE}-${tokenDay}-${token}`,
+          totalInr: lines.reduce((sum, line) => sum + line.priceInr * line.qty, 0),
+          items: { create: lines },
+        },
+      });
     }
-    console.log(`${stall.name}: added ${added} fake order${added === 1 ? "" : "s"}${added < count ? " (its pickup slots are full)" : ""}.`);
+    console.log(`${stall.name}: added ${count} fake order${count === 1 ? "" : "s"}.`);
   }
 
   // What every stall's queue looks like now, as the menus and the assistant see it.

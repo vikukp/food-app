@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { START_BEFORE_PICKUP_MS, dueAt, dueToStart, fromNow, minutesLate, slotGroups } from "@/lib/kitchen-slots";
+import { START_BEFORE_PICKUP_MS, dueAt, dueToStart, fromNow, inQueueNow, minutesLate, slotGroups } from "@/lib/kitchen-slots";
 import type { VendorOrder } from "@/lib/vendor-orders";
 
 const at = (time: string) => Date.parse(`${time}+05:30`);
@@ -55,6 +55,17 @@ describe("counter slots", () => {
     assert.equal(START_BEFORE_PICKUP_MS, 20 * 60_000);
     assert.deepEqual(dueToStart(orders, now).map((o) => o.token), ["T-1001", "T-1004"]);
     assert.deepEqual(dueToStart(orders, at("2026-10-26T00:10")).map((o) => o.token), ["T-1001", "T-1002", "T-1004"]);
+  });
+
+  it("count in the live wait only what is being cooked or due to start", () => {
+    const placed = (pickupAt: string | null) => ({ status: "PLACED", pickupAt: pickupAt ? new Date(at(pickupAt)) : null });
+    assert.equal(inQueueNow(placed("2026-10-25T20:55"), now), true);
+    // A pre-order for 21:05 starts at 20:45: not yet.
+    assert.equal(inQueueNow(placed("2026-10-25T21:05"), now), false);
+    assert.equal(inQueueNow(placed("2026-10-26T00:30"), at("2026-10-26T00:10")), true);
+    assert.equal(inQueueNow(placed(null), now), true);
+    assert.equal(inQueueNow({ status: "PREPARING", pickupAt: new Date(at("2026-10-26T00:30")) }, now), true);
+    assert.equal(inQueueNow({ status: "READY", pickupAt: null }, now), false);
   });
 
   it("move a pre-order up once the counter has started it early", () => {

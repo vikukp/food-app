@@ -61,7 +61,7 @@ With `DEMO_MODE=1`:
 
 ## Ordering
 
-- **Wait times and slots.** Stall cards show a live wait from the kitchen queue ("Moderate · ~20 min"), and the first pickup slot moves out with it (an hour out at most). Each stall sets how many orders it can hand over per 15-minute slot; full slots are greyed out at checkout.
+- **Wait times and slots.** Stall cards show a live wait from the kitchen queue ("Moderate · ~20 min"), and the first pickup slot moves out with it (an hour out at most). The queue is what the kitchen has to cook now: orders being prepared, and orders due to start (20 minutes before pickup). Pre-orders further out count once they are due, so a lunch order placed in the morning does not lengthen the morning's waits. Each stall sets how many orders it can hand over per 15-minute slot; full slots are greyed out at checkout.
 - **Dietary info.** FSSAI marks (green circle veg, brown triangle non-veg), plus Egg and Jain tags, allergens and calories where the stall has added them. Menus offer Veg / No egg / Jain filters when they would narrow the list.
 - **Search** on the stall list matches dishes as well as stalls.
 - **The bag** can mix up to 4 stalls. Checkout has a card per stall with its own pickup slot and kitchen note, and one payment for everything. Each stall gets its own order and token, so its counter, queue, receipt (with that stall's GSTIN) and sales export see only its part. Paying is all or nothing: if one stall's slot fills up or it pauses while you pay, nothing is charged and checkout points at that stall. A stall that cannot take orders right now can be removed from the bag to pay for the rest. Clearing the bag offers Undo. A bag left alone for 30 minutes starts empty on the next visit (or when a tab left open comes back into view): its pickup times, and maybe its prices, have moved on. Checkout re-checks every item: anything sold out or taken off the menu since is marked and must be removed before paying, and changed prices update the total.
@@ -203,7 +203,7 @@ npm run demo:queue -- dosa=12 punjab=6    # add 12 waiting orders at the Dosa Co
 npm run demo:queue -- --clear             # take every fake order away
 ```
 
-The fake orders wait at the counter like real ones (the counter screen shows them as "Queue test 1", "Queue test 2", ...), spread over the next pickup slots, a third of each slot at most so real orders still fit. Then ask the assistant for "2 masala dosas and a filter coffee" or "something quick". It refuses to run outside demo mode, as it writes orders into the database.
+The fake orders wait at the counter like real ones (the counter screen shows them as "Queue test 1", "Queue test 2", ...), due over the next 20 minutes so they are the queue now; they take no place in a pickup slot from real orders. Then ask the assistant for "2 masala dosas and a filter coffee" or "something quick". It refuses to run outside demo mode, as it writes orders into the database.
 
 ### Trying habits with a demo history
 
