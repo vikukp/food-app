@@ -16,7 +16,9 @@ export type Effort = (typeof EFFORTS)[number];
 type Preset = {
   // Where the router lives; null when each install has its own (AI_BASE_URL).
   baseURL: string | null;
-  auth: "x-api-key" | "bearer";
+  // sdk: the Anthropic SDK's own way (for Anthropic itself); bearer: Authorization;
+  // x-api-key: that header alone, as Anthropic-format gateways document it.
+  auth: "sdk" | "bearer" | "x-api-key";
   // Requests reach Anthropic unchanged, so Claude-only fields (prompt caching,
   // effort, refusal fallbacks) can be sent. AI_CLAUDE_FEATURES overrides it.
   claudeFeatures: boolean;
@@ -27,14 +29,14 @@ type Preset = {
 };
 
 const PRESETS: Record<Router, Preset> = {
-  anthropic: { baseURL: "", auth: "x-api-key", claudeFeatures: true, defaultModel: "claude-opus-5-5" },
+  anthropic: { baseURL: "", auth: "sdk", claudeFeatures: true, defaultModel: "claude-opus-5-5" },
   openrouter: { baseURL: "https://openrouter.ai/api", auth: "bearer", claudeFeatures: false, defaultModel: null },
   vercel: { baseURL: "https://ai-gateway.vercel.sh", auth: "bearer", claudeFeatures: false, defaultModel: null },
   litellm: { baseURL: null, auth: "bearer", claudeFeatures: false, defaultModel: null },
   cloudflare: { baseURL: null, auth: "x-api-key", claudeFeatures: false, defaultModel: "claude-opus-5-5" },
   portkey: {
     baseURL: "https://api.portkey.ai",
-    auth: "x-api-key",
+    auth: "sdk",
     claudeFeatures: false,
     defaultModel: null,
     keyHeader: "x-portkey-api-key",
@@ -49,7 +51,8 @@ export type AssistantConfig = {
   baseURL?: string;
   apiKey: string | null;
   authToken: string | null;
-  headers: Record<string, string>;
+  // A null value drops that header from requests.
+  headers: Record<string, string | null>;
   claudeFeatures: boolean;
   effort: Effort | null;
   // Messages per person per rolling day, and across everyone.
@@ -136,9 +139,14 @@ export function assistantConfig(env: Env = process.env): AssistantConfig | null 
     router: router as Router,
     model,
     baseURL: baseURL || undefined,
-    apiKey: preset.auth === "x-api-key" ? key : null,
+    // A key passed in code also keeps the SDK from looking for credentials elsewhere on the server.
+    apiKey: preset.auth === "bearer" ? null : key,
     authToken: preset.auth === "bearer" ? key : null,
-    headers: { ...(headers ?? {}), ...(preset.keyHeader ? { [preset.keyHeader]: key } : {}) },
+    headers: {
+      ...(preset.auth === "x-api-key" ? { "x-api-key": key, authorization: null } : {}),
+      ...(preset.keyHeader ? { [preset.keyHeader]: key } : {}),
+      ...(headers ?? {}),
+    },
     claudeFeatures: features === "on" ? true : features === "off" ? false : preset.claudeFeatures,
     effort:
       effortSetting === "off"

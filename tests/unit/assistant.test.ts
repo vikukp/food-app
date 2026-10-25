@@ -90,6 +90,7 @@ describe("assistant settings", () => {
     assert.equal(assistantConfig({ AI_API_KEY: "v", AI_ROUTER: "VERCEL", AI_MODEL: "m" })!.baseURL, "https://ai-gateway.vercel.sh");
     const portkey = assistantConfig({ AI_API_KEY: "pk", AI_ROUTER: "portkey", AI_MODEL: "@anthropic/claude" })!;
     assert.equal(portkey.headers["x-portkey-api-key"], "pk");
+    assert.equal(portkey.apiKey, "pk");
     const cloudflare = assistantConfig({
       AI_API_KEY: "sk",
       AI_ROUTER: "cloudflare",
@@ -99,6 +100,9 @@ describe("assistant settings", () => {
     })!;
     assert.equal(cloudflare.model, "claude-opus-5-5");
     assert.equal(cloudflare.headers["cf-aig-authorization"], "Bearer gw");
+    // The key goes in x-api-key alone, as Cloudflare documents it.
+    assert.equal(cloudflare.headers["x-api-key"], "sk");
+    assert.equal(cloudflare.headers.authorization, null);
     assert.equal(cloudflare.claudeFeatures, true);
   });
 

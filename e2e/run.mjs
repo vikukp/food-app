@@ -1040,7 +1040,7 @@ await step("the AI assistant fills the bag from a chat, and paying stays with th
   const pay = chat.locator("a[href='/checkout']");
   check((await pay.innerText()).replace(/\s+/g, " ").includes("2 items · ₹180"), "the bag does not hold the 2 dosas");
   const [first] = aiStub.requests;
-  check(first?.headers["x-api-key"] === process.env.AI_API_KEY, "the key was not sent as x-api-key");
+  check(first?.headers["x-api-key"] === process.env.AI_API_KEY && !first.headers.authorization, "the key was not sent as x-api-key alone");
   check(first.body.system.includes("ordering assistant of Campus Food Court"), "the brand name is not in the instructions");
   const tools = first.body.tools.map((tool) => tool.name);
   check(tools.includes("add_to_bag") && !tools.some((name) => /pay|checkout|order/.test(name)), `tools: ${tools.join(", ")}`);
