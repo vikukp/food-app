@@ -38,11 +38,13 @@ export default async function StallsPage() {
     }))
     .sort((a, b) => Number(b.open) - Number(a.open) || a.name.localeCompare(b.name));
   const openCount = stalls.filter((stall) => stall.open).length;
+  const assistant = session && assistantConfig();
 
   return (
     <div className="flex min-h-full flex-col">
       <SiteHeader variant="employee" name={session?.name} current="stalls" right={<CartButton />} />
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-6 pb-24">
+      {/* With the assistant, leave room to scroll the last stall clear of its button above the bag bar. */}
+      <main className={`mx-auto w-full max-w-5xl flex-1 px-4 pt-6 ${assistant ? "pb-40" : "pb-24"}`}>
         <h1 className="text-2xl font-semibold tracking-tight">{brandNames().name}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {openCount} of {stalls.length} stalls open now (IST) · order now, pick up at your slot.
@@ -53,7 +55,7 @@ export default async function StallsPage() {
         </div>
       </main>
       <CartBar />
-      {session && assistantConfig() ? <Assistant owner={session.uid} /> : null}
+      {assistant ? <Assistant owner={session.uid} /> : null}
     </div>
   );
 }
