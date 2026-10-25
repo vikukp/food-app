@@ -11,7 +11,8 @@
     "test": "node --import tsx --test \"tests/unit/**/*.test.ts\"",
     "test:e2e": "node e2e/run.mjs",
     "db:setup": "node scripts/ensure-secret.mjs && prisma generate && prisma db push && prisma db seed",
-    "db:tag-dietary": "tsx scripts/tag-dietary.ts"
+    "db:tag-dietary": "tsx scripts/tag-dietary.ts",
+    "demo:queue": "tsx scripts/fake-queue.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

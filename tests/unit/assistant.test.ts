@@ -39,6 +39,8 @@ function stall(id: string, name: string, dishes: Dish[], extra: Partial<Catalogu
     openTime: "07:30",
     opensLaterToday: false,
     hours: "07:30–22:00",
+    queue: 0,
+    waitMinutes: 10,
     wait: "Short wait · ~10 min",
     dishes,
     ...extra,
@@ -57,13 +59,19 @@ const catalogue: Catalogue = {
       open: false,
       opensLaterToday: true,
       openTime: "12:00",
+      waitMinutes: null,
       wait: null,
     }),
     stall("rolls", "Roll Corner", [
       dish("rolls", "egg-roll", "Egg roll", 70, { veg: false, egg: true }),
       dish("rolls", "paneer-roll", "Paneer roll", 90, { jain: true, allergens: ["Milk"] }),
     ]),
-    stall("juice", "Juice Bar", [dish("juice", "mango", "Mango smoothie", 90, { category: "Juices" })], { paused: true, open: false }),
+    stall("juice", "Juice Bar", [dish("juice", "mango", "Mango smoothie", 90, { category: "Juices" })], {
+      paused: true,
+      open: false,
+      waitMinutes: null,
+      wait: null,
+    }),
   ],
 };
 
@@ -219,6 +227,114 @@ describe("assistant tools", () => {
     const out = ctx(stale);
     assert.equal(runTool("set_quantity", { item_id: "old-dish", quantity: 0 }, out).isError, undefined);
     assert.deepEqual(out.bag, EMPTY_CART);
+  });
+});
+
+describe("assistant and the queues", () => {
+  // A fake queue: the Dosa Counter is mobbed, Punjab Grill has a moderate wait,
+  // Idli & Filter Coffee and Jain Kitchen are quiet, and one thali counter is closed.
+  const queues: Catalogue = {
+    stalls: [
+      stall(
+        "dosa",
+        "Dosa Counter",
+        [dish("dosa", "masala", "Masala dosa", 90), dish("dosa", "filter", "Filter coffee", 35, { category: "Drinks" })],
+        { queue: 11, waitMinutes: 40, wait: "Busy · ~40 min" },
+      ),
+      stall(
+        "idli",
+        "Idli & Filter Coffee",
+        [dish("idli", "filter", "Filter coffee", 30, { category: "Drinks" }), dish("idli", "combo", "Idli vada combo", 80)],
+        { queue: 1 },
+      ),
+      stall(
+        "punjab",
+        "Punjab Grill",
+        [
+          dish("punjab", "veg-thali", "Veg thali", 140, { category: "Thali" }),
+          dish("punjab", "chicken-thali", "Chicken thali", 190, { category: "Thali", veg: false }),
+          dish("punjab", "rice-combo", "Rice + rajma combo", 120),
+        ],
+        { queue: 5, waitMinutes: 20, wait: "Moderate · ~20 min" },
+      ),
+      stall("jain", "Jain Kitchen", [dish("jain", "thali", "Jain thali", 150, { category: "Thali", jain: true })], { queue: 2 }),
+      stall("late", "Late Thali", [dish("late", "thali", "Night thali", 120, { category: "Thali" })], {
+        open: false,
+        opensLaterToday: true,
+        openTime: "20:00",
+        waitMinutes: null,
+        wait: null,
+      }),
+    ],
+  };
+  const run = (name: string, input: object, c: ToolContext = { catalogue: queues, bag: EMPTY_CART, changes: new Map() }) =>
+    json(runTool(name, input, c).content);
+  type Seen = { dish: string; stall: string; wait_minutes?: number; orders_in_queue?: number };
+
+  it("show each stall's live queue, and put the shorter wait first among equal matches", () => {
+    const thalis: Seen[] = run("search_menu", { query: "thali" }).dishes;
+    assert.deepEqual(
+      thalis.map((d) => [d.dish, d.wait_minutes, d.orders_in_queue]),
+      [
+        ["Jain thali", 10, 2],
+        ["Veg thali", 20, 5],
+        ["Chicken thali", 20, 5],
+      ],
+    );
+    const coffee: Seen[] = run("search_menu", { query: "filter coffee" }).dishes;
+    assert.deepEqual(coffee.map((d) => d.stall), ["Idli & Filter Coffee", "Dosa Counter"]);
+    // A closed stall has no wait to compare.
+    const late = run("search_menu", { query: "night thali", include_closed: true }).dishes[0];
+    assert.equal(late.dish, "Night thali");
+    assert.equal("wait_minutes" in late, false);
+  });
+
+  it("find the quickest food first when asked to", () => {
+    const quick: Seen[] = run("search_menu", { veg: true, sort: "quickest" }).dishes;
+    const waits = quick.map((d) => d.wait_minutes!);
+    assert.deepEqual(waits, [...waits].sort((a, b) => a - b));
+    assert.equal(waits[0], 10);
+    assert.equal(quick.at(-1)!.stall, "Dosa Counter");
+  });
+
+  it("list open stalls quickest first, and closed ones last without a wait", () => {
+    const stalls = run("list_stalls", {}) as { stall: string; wait_minutes?: number; orders_in_queue?: number }[];
+    assert.deepEqual(
+      stalls.map((s) => s.stall),
+      ["Idli & Filter Coffee", "Jain Kitchen", "Punjab Grill", "Dosa Counter", "Late Thali"],
+    );
+    assert.deepEqual([stalls[3].wait_minutes, stalls[3].orders_in_queue], [40, 11]);
+    assert.equal("wait_minutes" in stalls[4], false);
+  });
+
+  it("offer the same kind of dish where the queue is much shorter, keeping the diet", () => {
+    const coffee = run("add_to_bag", { item_id: "dosa-filter" });
+    assert.equal(coffee.wait_minutes, 40);
+    assert.deepEqual(coffee.quicker_elsewhere, [
+      { item_id: "idli-filter", dish: "Filter coffee", stall: "Idli & Filter Coffee", price: 30, wait_minutes: 10 },
+    ]);
+    // A veg thali gets the Jain thali, never the chicken one, the closed counter's or its own stall's.
+    const thali = run("add_to_bag", { item_id: "punjab-veg-thali" });
+    assert.deepEqual(
+      thali.quicker_elsewhere.map((o: Seen) => [o.dish, o.stall]),
+      [["Jain thali", "Jain Kitchen"]],
+    );
+    assert.equal(run("add_to_bag", { item_id: "punjab-chicken-thali" }).quicker_elsewhere, undefined);
+  });
+
+  it("offer nothing when the wait is short, or for a serving like a combo", () => {
+    const quick = run("add_to_bag", { item_id: "jain-thali" });
+    assert.equal(quick.wait_minutes, 10);
+    assert.equal(quick.quicker_elsewhere, undefined);
+    // "Rice + rajma combo" and "Idli vada combo" are not the same dish.
+    assert.equal(run("add_to_bag", { item_id: "punjab-rice-combo" }).quicker_elsewhere, undefined);
+  });
+
+  it("tell the model to use the waits, and never to swap a dish by itself", () => {
+    const prompt = systemPrompt("Acme Food Court");
+    assert.match(prompt, /wait_minutes/);
+    assert.match(prompt, /quicker_elsewhere/);
+    assert.match(prompt, /Never swap a dish without asking/);
   });
 });
 

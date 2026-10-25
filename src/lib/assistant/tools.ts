@@ -21,7 +21,7 @@ export const TOOLS: Anthropic.Tool[] = [
   {
     name: "search_menu",
     description:
-      "Search dishes across every stall. Call this whenever the person names a dish, ingredient, cuisine, craving or diet, before adding anything, to get item IDs, prices, diet tags and whether the stall is open now. Use English food words, as the menus are in English. Returns up to 15 dishes, best matches first; only stalls open now unless include_closed is set.",
+      "Search dishes across every stall. Call this whenever the person names a dish, ingredient, cuisine, craving or diet, before adding anything, to get item IDs, prices, diet tags and whether the stall is open now. Each dish shows its stall's live queue: wait_minutes and orders_in_queue. Use English food words, as the menus are in English. Returns up to 15 dishes, best matches first (the shorter wait first among equal matches); only stalls open now unless include_closed is set.",
     input_schema: {
       type: "object",
       properties: {
@@ -36,6 +36,11 @@ export const TOOLS: Anthropic.Tool[] = [
         max_price: { type: "integer", description: "Highest price in rupees." },
         stall_id: { type: "string", description: "Only this stall's dishes." },
         include_closed: { type: "boolean", description: "Also show stalls that are closed or paused now. They cannot be ordered from now." },
+        sort: {
+          type: "string",
+          enum: ["match", "quickest"],
+          description: "match (default): best matches first. quickest: the shortest wait first, for something quick.",
+        },
       },
       additionalProperties: false,
     },
@@ -43,7 +48,7 @@ export const TOOLS: Anthropic.Tool[] = [
   {
     name: "list_stalls",
     description:
-      "Every stall with its cuisine, whether it is open now, the current wait and its hours. Call this when the person asks what is open or quick, or names a stall you need the ID of.",
+      "Every stall with its cuisine, whether it is open now, its live queue (wait_minutes, orders_in_queue) and its hours, open stalls with the shortest wait first. Call this when the person asks what is open or quick, or names a stall you need the ID of.",
     input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -58,7 +63,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "add_to_bag",
-    description: `Add a dish to the person's bag, on top of any already there. Only use item IDs from search_menu or get_stall_menu. The stall must be open now. A bag holds up to 4 stalls, 15 different dishes and ${MAX_ITEMS_PER_ORDER} items per stall.`,
+    description: `Add a dish to the person's bag, on top of any already there. Only use item IDs from search_menu or get_stall_menu. The stall must be open now. A bag holds up to 4 stalls, 15 different dishes and ${MAX_ITEMS_PER_ORDER} items per stall. Returns the stall's wait, and quicker_elsewhere when that wait is long and the same kind of dish is much quicker at another stall.`,
     input_schema: {
       type: "object",
       properties: {
@@ -118,6 +123,14 @@ function diet(dish: Dish) {
   return dish.egg ? "egg" : "non-veg";
 }
 
+// Live numbers for comparing stalls; none for a stall that is closed or paused.
+function queueView(stall: CatalogueStall) {
+  return stall.waitMinutes === null ? {} : { wait_minutes: stall.waitMinutes, orders_in_queue: stall.queue };
+}
+
+// For sorting: a closed stall waits longest.
+const waitOf = (stall: CatalogueStall) => stall.waitMinutes ?? 24 * 60;
+
 function stallStatus(stall: CatalogueStall) {
   if (stall.paused) return "paused: not taking orders now";
   if (stall.open) return stall.wait ? `open, ${stall.wait.toLowerCase()}` : "open";
@@ -128,7 +141,9 @@ function dishView(dish: Dish, stall: CatalogueStall, withStall: boolean) {
   return {
     item_id: dish.id,
     dish: dish.name,
-    ...(withStall ? { stall: stall.name, stall_id: stall.id, stall_status: stallStatus(stall) } : { category: dish.category }),
+    ...(withStall
+      ? { stall: stall.name, stall_id: stall.id, stall_status: stallStatus(stall), ...queueView(stall) }
+      : { category: dish.category }),
     price: dish.price,
     diet: diet(dish),
     allergens_listed: dish.allergens.length ? dish.allergens : "none listed",
@@ -192,6 +207,7 @@ function searchMenu(input: Input, { catalogue }: ToolContext): ToolOutcome {
   const maxPrice = input.max_price === undefined ? null : int(input.max_price);
   const stallId = typeof input.stall_id === "string" ? input.stall_id : null;
   const includeClosed = input.include_closed === true;
+  const quickest = input.sort === "quickest";
   // own: some query word is in the dish's own name or description, not only its stall's.
   const hits: { dish: Dish; stall: CatalogueStall; score: number; own: boolean }[] = [];
   let closedHits = 0;
@@ -227,8 +243,10 @@ function searchMenu(input: Input, { catalogue }: ToolContext): ToolOutcome {
   if (hits.some((hit) => hit.own)) hits.splice(0, hits.length, ...hits.filter((hit) => hit.own));
   hits.sort(
     (a, b) =>
+      (quickest ? waitOf(a.stall) - waitOf(b.stall) : 0) ||
       b.score - a.score ||
       Number(b.stall.open) - Number(a.stall.open) ||
+      waitOf(a.stall) - waitOf(b.stall) ||
       a.dish.name.length - b.dish.name.length ||
       a.dish.price - b.dish.price,
   );
@@ -241,18 +259,58 @@ function searchMenu(input: Input, { catalogue }: ToolContext): ToolOutcome {
 }
 
 function listStalls(_: Input, { catalogue }: ToolContext): ToolOutcome {
+  const quickestFirst = [...catalogue.stalls].sort((a, b) => waitOf(a) - waitOf(b) || a.name.localeCompare(b.name));
   return ok(
     "Checking which stalls are open…",
-    catalogue.stalls.map((stall) => ({
+    quickestFirst.map((stall) => ({
       stall_id: stall.id,
       stall: stall.name,
       cuisine: stall.cuisine,
       location: stall.location,
       status: stallStatus(stall),
+      ...queueView(stall),
       hours: stall.hours,
       ...(stall.vegOnly ? { veg_only: true } : {}),
     })),
   );
+}
+
+// A wait this long is worth a quicker option, if one is this much quicker.
+const SLOW_WAIT_MINUTES = 20;
+const QUICKER_BY_MINUTES = 10;
+// Last words too broad to compare dishes by: "Idli vada combo" is no swap for
+// "Rice + manchurian combo", nor "Kesari bath" (a sweet) for "Bisi bele bath".
+const TOO_BROAD = new Set(["combo", "plate", "bowl", "cup", "bath", "dry", "extra"]);
+
+// What kind of dish this is, by the last word of its name: "dosa", "thali", "roll".
+function kindOf(dish: Dish) {
+  const kind = words(dish.name.replace(/\(.*?\)/g, " ")).at(-1);
+  return kind && !TOO_BROAD.has(kind) ? kind : null;
+}
+
+// The same kind of dish, with the same diet, at open stalls with a much
+// shorter queue: for the assistant to offer, never to swap in by itself.
+function quickerElsewhere(catalogue: Catalogue, dish: Dish, stall: CatalogueStall) {
+  const kind = kindOf(dish);
+  if (!kind || stall.waitMinutes === null || stall.waitMinutes < SLOW_WAIT_MINUTES) return [];
+  const options: { dish: Dish; stall: CatalogueStall }[] = [];
+  for (const other of catalogue.stalls) {
+    if (other.id === stall.id || !other.open || waitOf(other) > stall.waitMinutes - QUICKER_BY_MINUTES) continue;
+    for (const candidate of other.dishes) {
+      if (!candidate.available || candidate.veg !== dish.veg || candidate.egg !== dish.egg) continue;
+      if (kindOf(candidate) === kind) options.push({ dish: candidate, stall: other });
+    }
+  }
+  return options
+    .sort((a, b) => waitOf(a.stall) - waitOf(b.stall) || a.dish.price - b.dish.price)
+    .slice(0, 2)
+    .map((option) => ({
+      item_id: option.dish.id,
+      dish: option.dish.name,
+      stall: option.stall.name,
+      price: option.dish.price,
+      wait_minutes: option.stall.waitMinutes,
+    }));
 }
 
 function stallMenu(input: Input, { catalogue }: ToolContext): ToolOutcome {
@@ -262,6 +320,7 @@ function stallMenu(input: Input, { catalogue }: ToolContext): ToolOutcome {
     stall: stall.name,
     stall_id: stall.id,
     status: stallStatus(stall),
+    ...queueView(stall),
     dishes: stall.dishes.map((dish) => dishView(dish, stall, false)),
   });
 }
@@ -290,11 +349,14 @@ function addDish(input: Input, ctx: ToolContext): ToolOutcome {
   const line = { menuItemId: dish.id, name: dish.name, priceInr: dish.price, veg: dish.veg };
   for (let i = 0; i < adding; i += 1) ctx.bag = addToCart(ctx.bag, { id: stall.id, name: stall.name }, line);
   record(ctx, { id: stall.id, name: stall.name }, line);
+  const quicker = quickerElsewhere(ctx.catalogue, dish, stall);
   return ok(status, {
     added: adding,
     dish: dish.name,
     stall: stall.name,
     now_in_bag: qtyInBag(ctx.bag, dish.id),
+    ...queueView(stall),
+    ...(quicker.length ? { quicker_elsewhere: quicker } : {}),
     ...(adding < quantity ? { note: `Most of one dish in a bag is ${MAX_QTY_PER_LINE}.` } : {}),
     bag: bagSummary(ctx.bag),
   });

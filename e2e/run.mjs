@@ -3,9 +3,11 @@
 //   npm run test:e2e                (in another)
 // BASE_URL, CHROME_PATH and SCREENSHOT_DIR are optional. Every run registers
 // fresh random mobile numbers and never touches the demo employee.
+import { execFileSync } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { startAiStub } from "./ai-stub.mjs";
 
@@ -1023,15 +1025,24 @@ async function axeViolations(page) {
   return result.violations.map((v) => `${new URL(page.url()).pathname}: ${v.id} (${v.nodes.length})`);
 }
 
+const clearBagAndChat = (page) =>
+  page.evaluate(() => {
+    for (const key of Object.keys(localStorage)) if (key.startsWith("fc-cart")) localStorage.removeItem(key);
+    for (const key of Object.keys(sessionStorage)) if (key.startsWith("fc-assistant")) sessionStorage.removeItem(key);
+  });
+
+// npm run demo:queue: fake orders waiting at a counter, in the database the
+// server reads. Only with AI_STUB_PORT set, when the server runs on this machine.
+const fakeQueue = (...args) =>
+  execFileSync(process.execPath, ["--import", "tsx", "scripts/fake-queue.ts", ...args], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    stdio: "pipe",
+  });
+
 await step("the AI assistant fills the bag from a chat, and paying stays with the person", async () => {
   if (!aiStub) return "skipped: AI_STUB_PORT is not set";
-  const clearBagAndChat = () =>
-    emp.evaluate(() => {
-      for (const key of Object.keys(localStorage)) if (key.startsWith("fc-cart")) localStorage.removeItem(key);
-      for (const key of Object.keys(sessionStorage)) if (key.startsWith("fc-assistant")) sessionStorage.removeItem(key);
-    });
   await emp.goto(`${BASE}/stalls`);
-  await clearBagAndChat();
+  await clearBagAndChat(emp);
   await emp.goto(`${BASE}/stalls/dosa`, { waitUntil: "networkidle" });
   await emp.getByRole("button", { name: "Ask AI" }).click();
   const chat = emp.getByRole("dialog", { name: "Order with AI" });
@@ -1051,8 +1062,40 @@ await step("the AI assistant fills the bag from a chat, and paying stays with th
   const violations = await axeViolations(emp);
   check(violations.length === 0, violations.join("; "));
   await emp.keyboard.press("Escape");
-  await clearBagAndChat();
+  await clearBagAndChat(emp);
   return `"2 masala dosa": ${aiStub.requests.length} model calls, 2 in the bag, chat passes axe`;
+});
+
+await step("the assistant sees the queues: the shorter one first, and a quicker counter offered", async () => {
+  if (!aiStub) return "skipped: AI_STUB_PORT is not set";
+  // A fake queue at the 24-hour sandwich counter, taken away again at the end.
+  fakeQueue("sandwich=12");
+  try {
+    await emp.goto(`${BASE}/stalls`);
+    await clearBagAndChat(emp);
+    await emp.goto(`${BASE}/stalls/sandwich`, { waitUntil: "networkidle" });
+    await emp.getByText(/Busy · ~\d+ min/).first().waitFor({ timeout: 5000 });
+    await emp.getByRole("button", { name: "Ask AI" }).click();
+    const chat = emp.getByRole("dialog", { name: "Order with AI" });
+    const box = chat.getByLabel("Message the assistant");
+    // Every coffee matches "coffee" alike, so the one with the shortest queue comes first.
+    await box.fill("1 coffee");
+    await box.press("Enter");
+    await chat.getByText(/Added 1 Filter coffee from (Idli & Filter Coffee|Dosa Counter)\./).waitFor({ timeout: 15000 });
+    // Asked for by name, the busy counter's coffee goes in, and a quicker one is offered.
+    await box.fill("1 cold coffee");
+    await box.press("Enter");
+    await chat
+      .getByText(/Added 1 Cold coffee from Sandwich & Wrap Lab\..*Filter coffee at (Idli & Filter Coffee|Dosa Counter) takes about \d+ min\. Want that instead\?/)
+      .waitFor({ timeout: 15000 });
+    const pay = await chat.locator("a[href='/checkout']").innerText();
+    check(pay.replace(/\s+/g, " ").includes("2 items"), "the bag does not hold both coffees");
+  } finally {
+    fakeQueue("--clear");
+    await emp.keyboard.press("Escape");
+    await clearBagAndChat(emp);
+  }
+  return "12 fake orders at the sandwich counter: the quick filter coffee came first, and the cold coffee came with a quicker offer";
 });
 
 await step("pages pass an automated accessibility audit (axe, WCAG 2.1 AA)", async () => {
