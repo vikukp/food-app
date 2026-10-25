@@ -1,10 +1,11 @@
 import { cleanText, toInt } from "@/lib/validation";
 
 // The AI ordering assistant is off until AI_API_KEY is set. AI_ROUTER says
-// where its requests go: to Anthropic, or through a router or gateway that
-// takes the same Messages API format (README, AI ordering assistant).
+// where its requests go: to Anthropic or OpenAI, or through a router or
+// gateway that takes Anthropic's Messages API format (README, AI ordering
+// assistant).
 
-export const ROUTERS = ["anthropic", "openrouter", "vercel", "litellm", "cloudflare", "portkey", "custom"] as const;
+export const ROUTERS = ["anthropic", "openai", "openrouter", "vercel", "litellm", "cloudflare", "portkey", "custom"] as const;
 export type Router = (typeof ROUTERS)[number];
 
 // Longest message a person can send the assistant.
@@ -14,15 +15,17 @@ export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type Effort = (typeof EFFORTS)[number];
 
 type Preset = {
+  // OpenAI's Responses API; Anthropic's Messages API when not set.
+  api?: "openai";
   // Where the router lives; null when each install has its own (AI_BASE_URL).
   baseURL: string | null;
-  // sdk: the Anthropic SDK's own way (for Anthropic itself); bearer: Authorization;
+  // sdk: the SDK's own way (for Anthropic and OpenAI themselves); bearer: Authorization;
   // x-api-key: that header alone, as Anthropic-format gateways document it.
   auth: "sdk" | "bearer" | "x-api-key";
   // Requests reach Anthropic unchanged, so Claude-only fields (prompt caching,
   // effort, refusal fallbacks) can be sent. AI_CLAUDE_FEATURES overrides it.
   claudeFeatures: boolean;
-  // Routers name models their own way, so only Anthropic gets a default.
+  // Routers name models their own way, so only Anthropic and OpenAI get a default.
   defaultModel: string | null;
   // A header that carries the key as well (Portkey reads its own).
   keyHeader?: string;
@@ -30,6 +33,7 @@ type Preset = {
 
 const PRESETS: Record<Router, Preset> = {
   anthropic: { baseURL: "", auth: "sdk", claudeFeatures: true, defaultModel: "claude-opus-5-5" },
+  openai: { api: "openai", baseURL: "https://api.openai.com/v1", auth: "sdk", claudeFeatures: false, defaultModel: "gpt-6.1-sol" },
   openrouter: { baseURL: "https://openrouter.ai/api", auth: "bearer", claudeFeatures: false, defaultModel: null },
   vercel: { baseURL: "https://ai-gateway.vercel.sh", auth: "bearer", claudeFeatures: false, defaultModel: null },
   litellm: { baseURL: null, auth: "bearer", claudeFeatures: false, defaultModel: null },
@@ -46,6 +50,7 @@ const PRESETS: Record<Router, Preset> = {
 
 export type AssistantConfig = {
   router: Router;
+  api: "anthropic" | "openai";
   model: string;
   // Undefined: the Anthropic API (or ANTHROPIC_BASE_URL, if set).
   baseURL?: string;
@@ -137,6 +142,7 @@ export function assistantConfig(env: Env = process.env): AssistantConfig | null 
 
   return {
     router: router as Router,
+    api: preset.api ?? "anthropic",
     model,
     baseURL: baseURL || undefined,
     // A key passed in code also keeps the SDK from looking for credentials elsewhere on the server.
@@ -147,7 +153,7 @@ export function assistantConfig(env: Env = process.env): AssistantConfig | null 
       ...(preset.keyHeader ? { [preset.keyHeader]: key } : {}),
       ...(headers ?? {}),
     },
-    claudeFeatures: features === "on" ? true : features === "off" ? false : preset.claudeFeatures,
+    claudeFeatures: preset.api === "openai" ? false : features === "on" ? true : features === "off" ? false : preset.claudeFeatures,
     effort:
       effortSetting === "off"
         ? null
