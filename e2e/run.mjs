@@ -1203,18 +1203,20 @@ await step("the AI assistant fills the bag from a chat, and paying stays with th
   if (!aiStub) return "skipped: AI_STUB_PORT is not set";
   await emp.goto(`${BASE}/stalls`);
   await clearBag(emp);
-  await emp.goto(`${BASE}/stalls/dosa`, { waitUntil: "networkidle" });
+  // The 24-hour Idli & Filter Coffee counter, so the step passes at any hour
+  // (the Dosa Counter closes at 22:00).
+  await emp.goto(`${BASE}/stalls/idli`, { waitUntil: "networkidle" });
   await emp.getByRole("button", { name: "Ask AI" }).click();
   const chat = emp.getByRole("dialog", { name: "Order with AI" });
   await chat.waitFor();
   // This person has ordered before, so the first suggestion comes from their own habits.
   await chat.getByRole("button", { name: /^(My usual: .+|Suggest something I usually like)$/ }).waitFor();
   const box = chat.getByLabel("Message the assistant");
-  await box.fill("2 masala dosa");
+  await box.fill("2 ven pongal");
   await box.press("Enter");
-  await chat.getByText(/Added 2 Masala dosa from Dosa Counter\. Your bag is now ₹180\./).waitFor({ timeout: 15000 });
+  await chat.getByText(/Added 2 Ven pongal from Idli & Filter Coffee\. Your bag is now ₹160\./).waitFor({ timeout: 15000 });
   const pay = chat.locator("a[href='/checkout']");
-  check((await pay.innerText()).replace(/\s+/g, " ").includes("2 items · ₹180"), "the bag does not hold the 2 dosas");
+  check((await pay.innerText()).replace(/\s+/g, " ").includes("2 items · ₹160"), "the bag does not hold the 2 pongals");
   const [first] = aiStub.requests;
   check(first?.headers["x-api-key"] === process.env.AI_API_KEY && !first.headers.authorization, "the key was not sent as x-api-key alone");
   check(first.body.system.includes("ordering assistant of Campus Food Court"), "the brand name is not in the instructions");
@@ -1235,13 +1237,13 @@ await step("the AI assistant fills the bag from a chat, and paying stays with th
   await emp.locator("main a[href='/stalls']").first().click();
   await emp.waitForURL(`${BASE}/stalls`);
   await openChat();
-  await chat.getByText(/Added 2 Masala dosa from Dosa Counter/).waitFor();
+  await chat.getByText(/Added 2 Ven pongal from Idli & Filter Coffee/).waitFor();
   await emp.keyboard.press("Escape");
   await emp.reload({ waitUntil: "networkidle" });
   await openChat();
   await chat.getByText("Try one of these, or type your own:").waitFor();
-  check((await chat.getByText(/Added 2 Masala dosa/).count()) === 0, "the chat came back after a reload");
-  check((await pay.innerText()).replace(/\s+/g, " ").includes("2 items · ₹180"), "the bag did not survive a reload");
+  check((await chat.getByText(/Added 2 Ven pongal/).count()) === 0, "the chat came back after a reload");
+  check((await pay.innerText()).replace(/\s+/g, " ").includes("2 items · ₹160"), "the bag did not survive a reload");
   await emp.keyboard.press("Escape");
   await emp.evaluate(() => {
     for (const key of Object.keys(localStorage).filter((k) => k.startsWith("fc-cart-v1:"))) {
@@ -1254,7 +1256,7 @@ await step("the AI assistant fills the bag from a chat, and paying stays with th
   check((await pay.count()) === 0, "a bag left for 31 minutes came back");
   await emp.keyboard.press("Escape");
   await clearBag(emp);
-  return `"2 masala dosa": ${aiStub.requests.length} model calls, 2 in the bag, chat passes axe; chat kept across pages, new on reload; bag kept on reload, gone after 30 idle minutes`;
+  return `"2 ven pongal": ${aiStub.requests.length} model calls, 2 in the bag, chat passes axe; chat kept across pages, new on reload; bag kept on reload, gone after 30 idle minutes`;
 });
 
 await step("the assistant sees the queues: the shorter one first, and a quicker counter offered", async () => {
