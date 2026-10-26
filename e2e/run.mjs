@@ -711,7 +711,11 @@ await step("the counter scans a ticket QR without a native reader, and refuses a
 
 await step("the counter installs as an app of its own, opening on the kitchen queue", async () => {
   const vendor = await vendorSignIn("vendor-manifest", "momos");
+  // A full page load, as the browser offering to install sees it (signing in
+  // is a client-side navigation, and its metadata may land a moment later).
+  await vendor.goto(`${BASE}/vendor`);
   const links = vendor.locator("link[rel='manifest']");
+  await links.first().waitFor({ state: "attached" });
   check((await links.count()) === 1, `counter page has ${await links.count()} manifest links`);
   const href = await links.getAttribute("href");
   check(href === "/vendor/manifest.webmanifest", `the counter links ${href}`);
