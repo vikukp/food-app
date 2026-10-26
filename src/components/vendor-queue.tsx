@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
+import { SoundPrompt, useScreenAwake } from "@/components/counter-tablet";
 import { QrScanner, useCanScan } from "@/components/qr-scanner";
 import { VegDot } from "@/components/veg-dot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { advanceVendorOrder, cancelVendorOrder, lookupVendorOrder, type ActionResult } from "@/lib/actions";
+import { ticketCheck } from "@/lib/handover";
 import { campusClockTime } from "@/lib/hours";
 import { START_BEFORE_PICKUP_MS, dueToStart, fromNow, minutesLate, slotGroups, type SlotGroup } from "@/lib/kitchen-slots";
 import { formatInr } from "@/lib/money";
@@ -21,6 +23,8 @@ const UNCOLLECTED_MS = 15 * 60_000;
 // After a tap the card's buttons rest this long, so a double tap on "Mark
 // ready" does not land on the "Mark collected" that replaces it.
 const TAP_COOLDOWN_MS = 1200;
+// Cards side by side on a tablet.
+const CARDS = "grid gap-3 md:grid-cols-2";
 
 export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
   const [orders, setOrders] = useState(initial.orders);
@@ -29,6 +33,10 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
   const [query, setQuery] = useState("");
   const [scanning, setScanning] = useState(false);
   const canScan = useCanScan();
+  // The ticket last scanned or typed in, and how: its card says whether to
+  // hand it over (see lib/handover.ts).
+  const [checked, setChecked] = useState<{ id: string; by: "scan" | "typed" } | null>(null);
+  useScreenAwake();
   // Client clock for "waiting at the counter" and for calling orders due to
   // start; null until mounted so the server render matches.
   const [now, setNow] = useState<number | null>(null);
@@ -128,6 +136,9 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
         }
         toast.dismiss();
         const found = { ...result.order, found: true };
+        const by = value.startsWith("FOOD-COURT|") ? "scan" : "typed";
+        setChecked({ id: found.id, by });
+        if (ticketCheck(found, by)?.level === "stop") chime("wrong");
         edits.current += 1;
         setOrders((current) =>
           current.some((o) => o.id === found.id)
@@ -143,6 +154,7 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
   // Orders pulled in by a lookup go away with the search; the poll keeps the rest.
   function clearSearch() {
     setQuery("");
+    setChecked(null);
     setOrders((current) => current.filter((o) => !o.found));
   }
 
@@ -156,6 +168,8 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
         return;
       }
       setOrders((current) => current.map((o) => (o.id === order.id ? { ...o, ...patch } : o)));
+      // Handed over (or turned down) here: no warning about it on its card.
+      setChecked((ticket) => (ticket?.id === order.id ? null : ticket));
       setCancelFor(null);
       toast.success(done);
       setCooling((ids) => new Set(ids).add(order.id));
@@ -182,6 +196,7 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
       order.status === "READY" &&
       (now === null || !order.readyAt || now - Date.parse(order.readyAt) < NO_SHOW_AFTER_MS);
     const reasons = noShowTooSoon ? [] : cancelReasonsFor(order.status);
+    const check = checked?.id === order.id ? ticketCheck(order, checked.by, now ?? undefined) : null;
     return (
       <li key={order.id} className="rounded-xl border bg-card p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -202,6 +217,16 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
           <p role="status" className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-950">
             Ready {Math.floor((now - Date.parse(order.readyAt)) / 60_000)} min and not collected. Call out{" "}
             {order.token}.
+          </p>
+        ) : null}
+        {check ? (
+          <p
+            role={check.level === "stop" ? "alert" : "status"}
+            className={`mt-2 rounded-md px-2 py-1.5 text-sm font-medium ${
+              check.level === "stop" ? "bg-red-700 text-white" : "bg-amber-50 text-amber-950"
+            }`}
+          >
+            {check.text}
           </p>
         ) : null}
         {order.status === "CANCELLED" && order.cancelReason ? (
@@ -307,12 +332,13 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
         </p>
       </div>
       <p className="text-sm">{group.items.map((item) => `${item.qty}× ${item.name}`).join(" · ")}</p>
-      <ul className="space-y-3">{group.orders.map(card)}</ul>
+      <ul className={CARDS}>{group.orders.map(card)}</ul>
     </section>
   );
 
   return (
     <div className="space-y-4">
+      <SoundPrompt />
       <DaySummary summary={summary} />
 
       <form
@@ -388,7 +414,7 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
       ) : !digits && tab === "active" && now !== null ? (
         <ActiveBySlot groups={slotGroups(visible, now)} now={now} section={slotSection} />
       ) : (
-        <ul className="space-y-3">{visible.map(card)}</ul>
+        <ul className={CARDS}>{visible.map(card)}</ul>
       )}
     </div>
   );
