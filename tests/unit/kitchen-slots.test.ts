@@ -20,6 +20,8 @@ function order(token: string, slot: string, pickupAt: string | null, extra: Part
     cancelReason: null,
     createdAt: new Date(at("2026-10-25T20:00")).toISOString(),
     readyAt: null,
+    collectedAt: null,
+    cancelledAt: null,
     note: null,
     items: [momos],
     ...extra,

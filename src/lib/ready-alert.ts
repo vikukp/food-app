@@ -1,7 +1,8 @@
-// Browser-side nudges: "your food is ready" for employees, and the chime the
-// counter plays when an order is due to start. Each one is best effort: a
-// phone may block sound until the page has been touched, a desktop may have
-// no vibration motor, and notifications need the employee's permission.
+// Browser-side nudges: "your food is ready" for employees, and the sounds the
+// counter plays (an order due to start, a ticket it must not hand over). Each
+// one is best effort: a phone may block sound until the page has been
+// touched, a desktop may have no vibration motor, and notifications need the
+// employee's permission.
 
 export function canNotify() {
   return typeof window !== "undefined" && "Notification" in window;
@@ -12,12 +13,41 @@ export async function askToNotify() {
   return (await Notification.requestPermission()) === "granted";
 }
 
-export function chime() {
+function audioContextClass() {
+  return window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+}
+
+// A counter tablet turns sound on with a tap (browsers keep it off until the
+// page has been touched) and keeps that one audio context for every sound
+// after, as some (Safari) would not start a new one without a tap.
+let kept: AudioContext | null = null;
+
+export async function turnOnSound() {
   try {
-    const Context = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    const Context = audioContextClass();
+    if (!Context) return false;
+    kept ??= new Context();
+    await kept.resume();
+    return kept.state === "running";
+  } catch {
+    return false;
+  }
+}
+
+export function soundIsOn() {
+  return kept?.state === "running";
+}
+
+// Rising for good news (ready, time to start), falling for a ticket the
+// counter must not hand over.
+const TONES = { ok: [880, 1175], wrong: [440, 294] };
+
+export function chime(kind: keyof typeof TONES = "ok") {
+  try {
+    const Context = audioContextClass();
     if (!Context) return;
-    const audio = new Context();
-    [880, 1175].forEach((frequency, i) => {
+    const audio = kept?.state === "running" ? kept : new Context();
+    TONES[kind].forEach((frequency, i) => {
       const tone = audio.createOscillator();
       const gain = audio.createGain();
       tone.frequency.value = frequency;
@@ -29,7 +59,7 @@ export function chime() {
       tone.start(start);
       tone.stop(start + 0.22);
     });
-    setTimeout(() => void audio.close(), 800);
+    if (audio !== kept) setTimeout(() => void audio.close(), 800);
   } catch {
     // No audio: the on-screen change still shows.
   }

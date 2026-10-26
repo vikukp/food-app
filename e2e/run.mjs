@@ -5,8 +5,10 @@
 // fresh random mobile numbers and never touches the demo employee.
 import { execFileSync } from "node:child_process";
 import { randomInt } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { startAiStub } from "./ai-stub.mjs";
@@ -59,13 +61,16 @@ function masked(phone) {
   return `+91 ${phone.slice(0, 2)}••• ••${phone.slice(7)}`;
 }
 
-const browser = await chromium.launch(
-  process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: "chrome" },
-);
+const launchOptions = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: "chrome" };
+const browser = await chromium.launch(launchOptions);
 
 async function newPage(label, viewport = { width: 1280, height: 900 }) {
   const context = await browser.newContext({ viewport });
-  const page = await context.newPage();
+  return watchPage(await context.newPage(), label);
+}
+
+// Pages count towards "no console or page errors" and get a screenshot on failure.
+function watchPage(page, label) {
   page.label = label;
   openPages.add(page);
   page.on("close", () => openPages.delete(page));
@@ -428,7 +433,10 @@ await step("order from a stall and get a QR token", async () => {
 });
 
 async function vendorSignIn(label, stallId = "momos", vendorPin = VENDOR_PIN) {
-  const vendor = await newPage(label);
+  return openCounter(await newPage(label), stallId, vendorPin);
+}
+
+async function openCounter(vendor, stallId = "momos", vendorPin = VENDOR_PIN) {
   await vendor.goto(`${BASE}/vendor/login`);
   await vendor.selectOption("select[name='stallId']", stallId);
   await vendor.fill("input[name='pin']", vendorPin);
@@ -553,6 +561,50 @@ async function waitForPay(page) {
   });
 }
 
+// A camera for the counter: a still Y4M video of a ticket's QR (its data URL),
+// for Chrome's fake capture device (--use-file-for-fake-video-capture).
+async function qrVideo(page, src) {
+  const [width, height] = [640, 480];
+  const yuv = await page.evaluate(
+    async ({ src, width, height }) => {
+      const image = new Image();
+      image.src = src;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const draw = canvas.getContext("2d");
+      draw.fillStyle = "#fff";
+      draw.fillRect(0, 0, width, height);
+      draw.drawImage(image, (width - 360) / 2, (height - 360) / 2, 360, 360);
+      const rgba = draw.getImageData(0, 0, width, height).data;
+      // I420 in full range: the Y plane, then U and V at half size each way.
+      const bytes = new Uint8ClampedArray(width * height * 1.5);
+      const u = width * height;
+      const v = u + u / 4;
+      for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          const [r, g, b] = rgba.subarray((y * width + x) * 4);
+          bytes[y * width + x] = 0.299 * r + 0.587 * g + 0.114 * b;
+          if (x % 2 === 0 && y % 2 === 0) {
+            const c = (y / 2) * (width / 2) + x / 2;
+            bytes[u + c] = 128 - 0.169 * r - 0.331 * g + 0.5 * b;
+            bytes[v + c] = 128 + 0.5 * r - 0.419 * g - 0.081 * b;
+          }
+        }
+      }
+      let binary = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return btoa(binary);
+    },
+    { src, width, height },
+  );
+  const frame = Buffer.concat([Buffer.from("FRAME\n"), Buffer.from(yuv, "base64")]);
+  const file = join(mkdtempSync(join(tmpdir(), "counter-camera-")), "ticket.y4m");
+  writeFileSync(file, Buffer.concat([Buffer.from(`YUV4MPEG2 W${width} H${height} F10:1 Ip A1:1 C420jpeg\n`), frame, frame]));
+  return file;
+}
+
 async function placeMomosOrder(page) {
   await freshBag(page, "momos");
   await page.goto(`${BASE}/checkout`);
@@ -602,8 +654,12 @@ await step("the counter finds a token, hands it over, and other stalls cannot", 
   await vendor.getByLabel("Find token").fill(digits);
   await vendor.getByRole("button", { name: "Find" }).click();
   const card = vendor.locator("main li", { hasText: token });
+  // Tokens are on the public ready board, so a typed one asks for a name check.
+  const nameCheck = await card.getByRole("status").innerText({ timeout: 5000 });
+  check(nameCheck.includes("Ask their name") && nameCheck.includes(user.name), `typed token, no name check: ${nameCheck}`);
   await card.getByRole("button", { name: "Mark collected" }).click();
   await vendor.getByText("Collected", { exact: true }).first().waitFor({ timeout: 5000 });
+  check((await card.getByRole("status").count()) === 0, "the name check stayed after handing over");
   await vendor.context().close();
 
   const ticket = await newPage("ticket-check");
@@ -611,7 +667,69 @@ await step("the counter finds a token, hands it over, and other stalls cannot", 
   await ticket.goto(`${BASE}/orders`);
   await ticket.locator("main li", { hasText: token }).getByText("Collected").waitFor({ timeout: 8000 });
   await ticket.context().close();
-  return `${token} found by token and collected; another stall was refused`;
+  return `${token} found by token, name checked and collected; another stall was refused`;
+});
+
+await step("the counter scans a ticket QR without a native reader, and refuses a copy once collected", async () => {
+  const scanned = await placeMomosOrder(emp);
+  const video = await qrVideo(emp, await emp.getByRole("img", { name: `QR for ${scanned}` }).getAttribute("src"));
+  const camera = await chromium.launch({
+    ...launchOptions,
+    args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-video-capture=${video}`],
+  });
+  try {
+    // A tablet-sized counter with no BarcodeDetector, as on an iPad: it reads the camera with jsQR.
+    const context = await camera.newContext({ viewport: { width: 1024, height: 768 }, permissions: ["camera"] });
+    await context.addInitScript(() => delete window.BarcodeDetector);
+    const vendor = await openCounter(watchPage(await context.newPage(), "vendor-camera"));
+    const card = vendor.locator("main li", { hasText: scanned });
+    await card.getByRole("button", { name: "Start preparing" }).click();
+    await card.getByRole("button", { name: "Mark ready" }).click();
+    await card.waitFor({ state: "detached" });
+    const scan = async () => {
+      await vendor.getByRole("button", { name: "Scan QR" }).click();
+      await vendor.getByText(`Search results for ${scanned.replace("T-", "")}`).waitFor({ timeout: 15_000 });
+      await card.waitFor();
+    };
+
+    await scan();
+    check((await card.locator("[role='alert'], [role='status']").count()) === 0, "a scanned ticket that is ready got a warning");
+    await card.getByRole("button", { name: "Mark collected" }).click();
+    await card.getByText("Collected", { exact: true }).waitFor();
+
+    // A copy of the same QR, shown after the handover.
+    await vendor.getByRole("button", { name: "Clear" }).click();
+    await scan();
+    const warning = (await card.getByRole("alert").innerText({ timeout: 5000 })).trim();
+    check(/^Already collected at \d{2}:\d{2}\. /.test(warning), `the copy's warning reads: ${warning}`);
+    check((await card.getByRole("button", { name: "Mark collected" }).count()) === 0, "a used ticket could be handed over again");
+    return `${scanned} scanned (jsQR) and collected; the same QR again: "${warning}"`;
+  } finally {
+    await camera.close();
+  }
+});
+
+await step("the counter installs as an app of its own, opening on the kitchen queue", async () => {
+  const vendor = await vendorSignIn("vendor-manifest", "momos");
+  // A full page load, as the browser offering to install sees it (signing in
+  // is a client-side navigation, and its metadata may land a moment later).
+  await vendor.goto(`${BASE}/vendor`);
+  const links = vendor.locator("link[rel='manifest']");
+  await links.first().waitFor({ state: "attached" });
+  check((await links.count()) === 1, `counter page has ${await links.count()} manifest links`);
+  const href = await links.getAttribute("href");
+  check(href === "/vendor/manifest.webmanifest", `the counter links ${href}`);
+  const manifest = await (await vendor.request.get(`${BASE}${href}`)).json();
+  check(
+    manifest.start_url === "/vendor" && manifest.scope === "/vendor" && manifest.id === "/vendor" && manifest.short_name === "Counter",
+    `counter manifest: ${JSON.stringify(manifest).slice(0, 200)}`,
+  );
+  check(manifest.icons?.length >= 3 && manifest.display === "standalone", "the counter manifest has no icons or is not standalone");
+  await vendor.goto(`${BASE}/`);
+  const employeeApp = await vendor.locator("link[rel='manifest']").getAttribute("href");
+  check(employeeApp === "/manifest.webmanifest", `the employee pages link ${employeeApp}`);
+  await vendor.context().close();
+  return `"${manifest.name}" starts at /vendor; employee pages keep their own app`;
 });
 
 await step("a collected order can be rated, the stall sees it, and the receipt splits out GST", async () => {

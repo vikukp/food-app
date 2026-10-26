@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { InstallCounterApp } from "@/components/counter-tablet";
 import { SiteHeader } from "@/components/site-header";
 import { buttonVariants } from "@/components/ui/button";
 import { VendorQueue } from "@/components/vendor-queue";
@@ -23,7 +24,7 @@ export default async function VendorPage() {
   return (
     <div className="flex min-h-full flex-col">
       <SiteHeader variant="vendor" stallName={stall.name} current="queue" />
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 lg:max-w-5xl">
         <h1 className="text-2xl font-semibold tracking-tight">{stall.name}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {stall.location} · incoming orders refresh every few seconds.
@@ -58,6 +59,7 @@ export default async function VendorPage() {
           <button type="submit" className={buttonVariants({ variant: "outline" })}>
             Download CSV
           </button>
+          <InstallCounterApp />
           <Link
             href={`/display/${stall.id}`}
             target="_blank"
