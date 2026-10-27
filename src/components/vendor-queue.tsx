@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
 import { SoundPrompt, useScreenAwake } from "@/components/counter-tablet";
-import { QrScanner, useCanScan } from "@/components/qr-scanner";
+import { QrScanner, useCanScan, useScannerGun } from "@/components/qr-scanner";
 import { VegDot } from "@/components/veg-dot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { advanceVendorOrder, cancelVendorOrder, lookupVendorOrder, type ActionResult } from "@/lib/actions";
 import { ticketCheck } from "@/lib/handover";
+import { QR_PREFIX, ticketTextIn } from "@/lib/qr-format";
 import { campusClockTime } from "@/lib/hours";
 import { START_BEFORE_PICKUP_MS, dueToStart, fromNow, minutesLate, slotGroups, type SlotGroup } from "@/lib/kitchen-slots";
 import { formatInr } from "@/lib/money";
@@ -112,7 +113,8 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
     });
   }, [orders, now]);
 
-  const digits = query.replace(/\D/g, "");
+  // A scanner gun typing a ticket into the box is not a token search.
+  const digits = query.includes("|") ? "" : query.replace(/\D/g, "");
   const counts = {
     active: orders.filter((o) => o.status === "PLACED" || o.status === "PREPARING").length,
     ready: orders.filter((o) => o.status === "READY").length,
@@ -136,7 +138,7 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
         }
         toast.dismiss();
         const found = { ...result.order, found: true };
-        const by = value.startsWith("FOOD-COURT|") ? "scan" : "typed";
+        const by = value.startsWith(`${QR_PREFIX}|`) ? "scan" : "typed";
         setChecked({ id: found.id, by });
         if (ticketCheck(found, by)?.level === "stop") chime("wrong");
         edits.current += 1;
@@ -150,6 +152,20 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
     },
     [],
   );
+
+  // What the camera or a scanner gun read: a ticket is looked up, anything
+  // else (another QR or barcode) is turned away here.
+  const read = useCallback(
+    (text: string) => {
+      const ticket = ticketTextIn(text);
+      if (ticket) return find(ticket);
+      setScanning(false);
+      chime("wrong");
+      toast.error("That code is not a ticket from this food court.");
+    },
+    [find],
+  );
+  useScannerGun(read);
 
   // Orders pulled in by a lookup go away with the search; the poll keeps the rest.
   function clearSearch() {
@@ -354,7 +370,14 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
           inputMode="numeric"
           className="h-9"
           value={query}
-          onChange={(event) => setQuery(event.target.value.slice(0, 12))}
+          onChange={(event) => {
+            const value = event.target.value.slice(0, 120);
+            // A scanner gun typing into the box: look the ticket up as soon as it is all there.
+            const ticket = ticketTextIn(value);
+            if (!ticket) return setQuery(value);
+            setQuery("");
+            find(ticket);
+          }}
         />
         {query ? (
           <Button type="button" variant="ghost" onClick={clearSearch}>
@@ -370,7 +393,7 @@ export function VendorQueue({ initial }: { initial: VendorQueueSnapshot }) {
           </Button>
         ) : null}
       </form>
-      {scanning ? <QrScanner onResult={find} onClose={() => setScanning(false)} /> : null}
+      {scanning ? <QrScanner onResult={read} onClose={() => setScanning(false)} /> : null}
 
       <div className="flex flex-wrap items-center gap-2">
         {TABS.map((id) => (

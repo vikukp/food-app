@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { ticketTextIn } from "@/lib/qr-format";
 
 // Chrome on Android, macOS and ChromeOS ships a native QR reader. Everywhere
 // else (Safari on an iPad, Firefox, Chrome on Windows) the camera frames are
@@ -20,6 +21,63 @@ function detectorClass(): DetectorClass | null {
   return typeof window !== "undefined" && "BarcodeDetector" in window
     ? (window as unknown as { BarcodeDetector: DetectorClass }).BarcodeDetector
     : null;
+}
+
+// A scanner gun (USB or Bluetooth, set up as a keyboard) types what it reads
+// far faster than anyone types, then usually Enter or Tab. This picks such a
+// burst up wherever the focus is (on a button just tapped, or nowhere) and
+// keeps its Enter from pressing that button. Text fields take what is typed
+// into them themselves (the Find box reads a ticket typed into it).
+const GUN_GAP_MS = 100; // longest pause between a gun's keys
+const GUN_MIN_CHARS = 8; // shorter than this is someone typing
+const GUN_IDLE_MS = 200; // for guns that send nothing after the code
+
+export function useScannerGun(onRead: (text: string) => void) {
+  useEffect(() => {
+    let typed = "";
+    let last = 0;
+    let readAt = -Infinity;
+    let idle: ReturnType<typeof setTimeout> | undefined;
+    const read = (at: number) => {
+      readAt = at;
+      onRead(typed);
+      typed = "";
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if ((event.target as Element | null)?.closest?.("input, textarea, select, [contenteditable='true']")) return;
+      const end = event.key === "Enter" || event.key === "Tab";
+      // Shift and the like come with capitals and "|": not a break in the burst.
+      if (!end && event.key.length !== 1) return;
+      // One clock for the gaps and for when a code was read.
+      const now = performance.now();
+      const gap = now - last;
+      last = now;
+      clearTimeout(idle);
+      if (end) {
+        if (typed.length >= GUN_MIN_CHARS && gap <= GUN_IDLE_MS) {
+          event.preventDefault();
+          read(now);
+        } else if (now - readAt < 1000) {
+          // The Enter after a code already read once the typing stopped.
+          event.preventDefault();
+        }
+        typed = "";
+        return;
+      }
+      if (gap > GUN_GAP_MS) typed = "";
+      typed += event.key;
+      idle = setTimeout(() => {
+        if (ticketTextIn(typed)) read(performance.now());
+        typed = "";
+      }, GUN_IDLE_MS);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      clearTimeout(idle);
+    };
+  }, [onRead]);
 }
 
 export function useCanScan() {
