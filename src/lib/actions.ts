@@ -23,6 +23,7 @@ import { parseCheckoutInput, type PaymentMethod, type StallOrderInput } from "@/
 import { checkoutOrderBy } from "@/lib/order-view";
 import { findPickupSlot } from "@/lib/pickup-slots";
 import { verifyQrPayload } from "@/lib/qr";
+import { QR_PREFIX } from "@/lib/qr-format";
 import { prisma } from "@/lib/prisma";
 import { clearBucket, clientIp, consume } from "@/lib/rate-limit";
 import {
@@ -456,7 +457,7 @@ export async function lookupVendorOrder(rawQuery: unknown): Promise<LookupResult
 
   const include = { ...vendorOrderInclude, stall: { select: { name: true } } };
   let order;
-  if (query.startsWith("FOOD-COURT|")) {
+  if (query.startsWith(`${QR_PREFIX}|`)) {
     const qr = await verifyQrPayload(query);
     if (!qr) return { ok: false, error: "That QR code is not a valid food court ticket." };
     order = await prisma.order.findUnique({ where: { id: qr.orderId }, include });

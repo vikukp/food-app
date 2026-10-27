@@ -605,6 +605,27 @@ async function qrVideo(page, src) {
   return file;
 }
 
+// What a ticket's QR says, read from its image with jsQR (the counter's own
+// reader where the browser has none), as a scanner gun would read it.
+const jsQR = createRequire(import.meta.url)("jsqr").default;
+
+async function ticketText(page, token) {
+  const { width, height, rgba } = await page.evaluate(async (alt) => {
+    const image = document.querySelector(`img[alt="${alt}"]`);
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const draw = canvas.getContext("2d");
+    draw.drawImage(image, 0, 0);
+    const data = draw.getImageData(0, 0, canvas.width, canvas.height).data;
+    let binary = "";
+    for (let i = 0; i < data.length; i += 0x8000) binary += String.fromCharCode(...data.subarray(i, i + 0x8000));
+    return { width: canvas.width, height: canvas.height, rgba: btoa(binary) };
+  }, `QR for ${token}`);
+  return jsQR(new Uint8ClampedArray(Buffer.from(rgba, "base64")), width, height)?.data ?? null;
+}
+
 async function placeMomosOrder(page) {
   await freshBag(page, "momos");
   await page.goto(`${BASE}/checkout`);
@@ -709,11 +730,62 @@ await step("the counter scans a ticket QR without a native reader, and refuses a
   }
 });
 
+await step("a scanner gun opens the ticket wherever the focus is, and its Enter presses nothing else", async () => {
+  const scanned = await placeMomosOrder(emp);
+  const text = await ticketText(emp, scanned);
+  check(text?.startsWith(`FOOD-COURT|${scanned}|`), `the ticket's QR reads ${text}`);
+  const other = await placeMomosOrder(emp);
+  const vendor = await vendorSignIn("vendor-gun", "momos");
+  const card = vendor.locator("main li", { hasText: scanned });
+  const otherCard = vendor.locator("main li", { hasText: other });
+  // A gun types like a very fast keyboard, then presses Enter.
+  const shoot = async () => {
+    await vendor.keyboard.type(text, { delay: 5 });
+    await vendor.keyboard.press("Enter");
+  };
+  try {
+    await card.getByRole("button", { name: "Start preparing" }).click();
+    await card.getByRole("button", { name: "Mark ready" }).click();
+    await card.waitFor({ state: "detached" });
+
+    // The focus on another order's button, as after a tap there: the gun's Enter must not press it.
+    await otherCard.getByRole("button", { name: "Start preparing" }).focus();
+    await shoot();
+    await vendor.getByText(`Search results for ${scanned.replace("T-", "")}`).waitFor({ timeout: 5000 });
+    check((await card.locator("[role='alert'], [role='status']").count()) === 0, "a scanned ticket that is ready got a warning");
+    await card.getByRole("button", { name: "Mark collected" }).click();
+    await card.getByText("Collected", { exact: true }).waitFor();
+    await vendor.getByRole("button", { name: "Clear" }).click();
+    await otherCard.getByText("Order placed", { exact: true }).waitFor({ timeout: 3000 });
+
+    // A copy shown after the handover, this time into the Find box.
+    await vendor.getByLabel("Find token").click();
+    await shoot();
+    const warning = (await card.getByRole("alert").innerText({ timeout: 5000 })).trim();
+    check(warning.startsWith("Already collected at "), `the copy's warning reads: ${warning}`);
+
+    // Not a ticket at all, such as a product barcode.
+    await vendor.getByRole("button", { name: "Clear" }).click();
+    await vendor.keyboard.type("8901234567890", { delay: 5 });
+    await vendor.keyboard.press("Enter");
+    await vendor.getByText("That code is not a ticket from this food court.").waitFor({ timeout: 3000 });
+    return `${scanned} read with the focus on ${other}'s button (left alone), then refused as a copy in the Find box`;
+  } finally {
+    // Turn the other order down, so the counter is empty for the steps after.
+    const clear = vendor.getByRole("button", { name: "Clear" });
+    if (await clear.isVisible()) await clear.click();
+    await otherCard.getByRole("button", { name: "Cancel", exact: true }).click();
+    await otherCard.getByRole("button", { name: "Kitchen is closing" }).click();
+    await vendor.getByText(`${other} cancelled`).waitFor();
+    await vendor.context().close();
+  }
+});
+
 await step("the counter installs as an app of its own, opening on the kitchen queue", async () => {
-  const vendor = await vendorSignIn("vendor-manifest", "momos");
-  // A full page load, as the browser offering to install sees it (signing in
-  // is a client-side navigation, and its metadata may land a moment later).
-  await vendor.goto(`${BASE}/vendor`);
+  // The counter's sign-in page shares the counter's layout, and checking it
+  // spends none of the 20 counter sign-ins a client gets per 15 minutes.
+  const vendor = await newPage("vendor-manifest");
+  await vendor.goto(`${BASE}/vendor/login`);
   const links = vendor.locator("link[rel='manifest']");
   await links.first().waitFor({ state: "attached" });
   check((await links.count()) === 1, `counter page has ${await links.count()} manifest links`);

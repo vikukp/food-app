@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { buildQrPayload, verifyQrPayload } from "@/lib/qr";
+import { ticketTextIn } from "@/lib/qr-format";
 
 // Read when signing, not at import.
 process.env.SESSION_SECRET = "q".repeat(40);
@@ -14,5 +15,16 @@ describe("pickup QR", () => {
     assert.equal(await verifyQrPayload(payload.slice(0, -1) + "0"), null);
     assert.equal(await verifyQrPayload("FOOD-COURT|T-1|x|y"), null);
     assert.equal(await verifyQrPayload("nonsense"), null);
+  });
+
+  it("is told apart in what a scanner gun types, once all of it is there", async () => {
+    const payload = await buildQrPayload("T-4821", "cmabcdefghij0123");
+    assert.equal(ticketTextIn(payload), payload);
+    // Typed after what was already in the Find box.
+    assert.equal(ticketTextIn(`4821${payload}`), payload);
+    assert.equal(ticketTextIn(`${payload}\n`), payload);
+    assert.equal(ticketTextIn(payload.slice(0, -1)), null);
+    assert.equal(ticketTextIn("8901234567890"), null);
+    assert.equal(ticketTextIn("https://example.com/menu"), null);
   });
 });
