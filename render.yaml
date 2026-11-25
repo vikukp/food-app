@@ -1,0 +1,26 @@
+# A public demo on Render (https://render.com): New > Blueprint, connect this
+# repo, Deploy Blueprint. See "Public demo on Render" in README.
+#
+# Demo mode: sign-in codes show on screen, every stall's PIN is 1234 and
+# payments are simulated. On the free plan the service sleeps after 15 minutes
+# without visitors, and the database lives inside the container, so each wake,
+# restart or deploy starts from a clean demo.
+services:
+  - type: web
+    name: campus-food-court-demo
+    runtime: docker
+    # Without this line Render picks a paid plan.
+    plan: free
+    region: singapore
+    healthCheckPath: /
+    envVars:
+      - key: DEMO_MODE
+        value: "1"
+      # Generated once by Render and kept across deploys.
+      - key: SESSION_SECRET
+        generateValue: true
+      # Render's load balancer terminates HTTPS in front of the app.
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+      - key: PORT
+        value: "10000"

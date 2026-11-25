@@ -257,6 +257,21 @@ docker compose up -d        # builds the image, serves on port 43123
 
 The database (`/data/food-court.db`) and, unless you set `SESSION_SECRET`, a generated signing key (`/data/session-secret`) live on the `food-court-data` volume, so they survive restarts and image upgrades. On start the container applies schema changes and seeds missing stalls (printing their PINs on first run outside demo mode: `docker compose logs app`). Configure it with the environment variables in `docker-compose.yml`; the checklist below applies unchanged. Back up with `docker compose exec app sh -c 'cp /data/food-court.db /data/backup.db'`, or by copying the volume.
 
+## Public demo on Render
+
+`render.yaml` puts a demo copy of this repo's Docker image on [Render](https://render.com)'s free plan:
+
+1. Sign in to Render with GitHub, choose **New > Blueprint** and connect this repo.
+2. Click **Deploy Blueprint**. The first build takes a few minutes; the service's page then shows its public `onrender.com` address.
+
+What to expect:
+
+- **It is a demo.** It runs with `DEMO_MODE=1`: sign-in codes show on screen, every stall's PIN is `1234` and payments are simulated. Do not take real orders on it.
+- **It sleeps.** After 15 minutes without visitors the free plan stops the service; the next visit waits about a minute while it wakes. Open the address a minute before showing it to someone, or move the service to a paid instance in Render's dashboard to keep it awake.
+- **It starts clean.** The database lives inside the container, so orders and new sign-ups are gone after a sleep, a restart or a deploy.
+- **It follows `main`.** Render redeploys on every push to the connected branch.
+- **The AI assistant is off** until `AI_API_KEY` (and `AI_ROUTER`, `AI_MODEL`) are added under the service's **Environment**.
+
 ## Deploying
 
 A checklist for running this for real, on one server:
