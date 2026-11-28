@@ -16,6 +16,10 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   serverExternalPackages: ["@prisma/client", "qrcode"],
   poweredByHeader: false,
+  // `next dev` and `next build` say so when the installed Next.js has a
+  // published security advisory and a fixed version to upgrade to. This is
+  // the default; it is spelled out so it is not switched off by accident.
+  experimental: { agentUpgrade: "security" },
   // `next dev` binds 0.0.0.0 so the preview is reachable from outside the VM,
   // but the browser opens it as 127.0.0.1. Without this the dev server rejects
   // the HMR socket and client fetches as cross-origin and React never hydrates.
